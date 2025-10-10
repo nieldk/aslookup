@@ -8,6 +8,7 @@
 - Correctly parses TXT DNS records to extract full ASN (including leading digits)
 - Secure HTTPS request to HackerTarget ASN lookup API using libcurl
 - Displays IP ranges and organization details for the ASN
+- Displays contact information on the found ASN
 - Fully self-contained: no external tools like `whois`, `dig`, or `curl` required
 
 ## Installation
@@ -16,16 +17,18 @@
 
 - GCC compiler
 - libcurl development library
+- libjcon development library
+- libc6 development library
 
-### Install libcurl (Debian/Ubuntu)
+### Install libcurl libjcon-dev libc6-dev (Debian/Ubuntu)
 
 
-sudo apt-get install libcurl4-openssl-dev
+sudo apt-get install libcurl4-openssl-dev libc6-dev
 
 ### Compile
 
 ```bash
-gcc aslookup.c -o aslookup -lcurl
+gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv
 ```
 
 ## Usage
@@ -37,25 +40,45 @@ gcc aslookup.c -o aslookup -lcurl
 Then enter an IP address when prompted:
 
 ```
-Enter IP address: 194.116.222.40
+Enter IP address: 94.231.103.111
 ```
-
 Example output:
+```
+~$ ./aslookup
+Enter IP address: 94.231.103.111
 
+Resolved ASN: 48854
 
-ASN Info: 21060 | 194.116.222.0/24 | DK | ripencc | 2005-02-16
+IP Ranges:
+"48854","TEAM-BLUE-DENMARK, DK"
+.
+94.231.96.0/20
+.
 
-Querying HackerTarget for ASN 21060...
+ASN Number: 48854
+Name: team-blue-denmark
+Description: team.blue Denmark A/S
+Country: DK
+Website: https://dkcareers.team.blue/pages/brands
 
-194.116.222.0/24
-194.116.223.0/24
-...
+Email Contacts:
+  - dk-abuse@team.blue
+  - info@zitcom.dk
+  - dk-noc@team.blue
+  - noc@zitcom.dk
 
-## Dependencies
+Abuse Contacts:
+  - dk-abuse@team.blue
 
-- POSIX-compatible system
-- libcurl for HTTPS requests
+Owner Address:
+  Hoejvangen 4
+  8660
+  Skanderborg
+  DENMARK
 
+Traffic Ratio: Mostly Outbound
+Updated: 2025-08-27 05:46:20
+```
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for details.
