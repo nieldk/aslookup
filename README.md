@@ -43,7 +43,9 @@ Then enter an IP address when prompted:
 Enter IP address: 94.231.103.111
 ```
 Example output:
+
 ![screenshot](sample-output.jpg)
+
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for details.
