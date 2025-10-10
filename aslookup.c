@@ -1,147 +1,178 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <arpa/inet.h>
 #include <curl/curl.h>
+#include <resolv.h>
+#include <netinet/in.h>
+#include <arpa/nameser.h>
+#include <cjson/cJSON.h>
 
-#define DNS_PORT 53
-#define DNS_SERVER "8.8.8.8"
-#define BUF_SIZE 512
+#define GREEN   "\033[32m"
+#define CYAN    "\033[36m"
+#define RED     "\033[31m"
+#define YELLOW  "\033[33m"
+#define RESET   "\033[0m"
 
-struct DNS_HEADER {
-    unsigned short id;
-    unsigned char rd :1;
-    unsigned char tc :1;
-    unsigned char aa :1;
-    unsigned char opcode :4;
-    unsigned char qr :1;
-    unsigned char rcode :4;
-    unsigned char z :3;
-    unsigned char ra :1;
-    unsigned short q_count;
-    unsigned short ans_count;
-    unsigned short auth_count;
-    unsigned short add_count;
+struct MemoryStruct {
+    char *memory;
+    size_t size;
 };
 
-struct QUESTION {
-    unsigned short qtype;
-    unsigned short qclass;
-};
-
-void reverse_ip(char *ip, char *out) {
-    int a, b, c, d;
-    sscanf(ip, "%d.%d.%d.%d", &a, &b, &c, &d);
-    sprintf(out, "%d.%d.%d.%d.origin.asn.cymru.com", d, c, b, a);
-}
-
-void format_dns_name(unsigned char *dns, const char *host) {
-    int lock = 0 , i;
-    strcat((char*)host, ".");
-    for(i = 0 ; i < strlen(host) ; i++) {
-        if(host[i]=='.') {
-            *dns++ = i-lock;
-            for(;lock<i;lock++) {
-                *dns++=host[lock];
-            }
-            lock++;
-        }
-    }
-    *dns++='\0';
-}
-
-size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
+size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t total = size * nmemb;
-    fwrite(contents, 1, total, stdout);
+    struct MemoryStruct *mem = (struct MemoryStruct *)userp;
+    char *ptr = realloc(mem->memory, mem->size + total + 1);
+    if (!ptr) return 0;
+    mem->memory = ptr;
+    memcpy(&(mem->memory[mem->size]), contents, total);
+    mem->size += total;
+    mem->memory[mem->size] = 0;
     return total;
 }
 
-void query_hackertarget(const char *asn) {
+char *get_asn_from_ip(const char *ip) {
+    static char asn[16] = {0};
+    int a, b, c, d;
+    if (sscanf(ip, "%d.%d.%d.%d", &a, &b, &c, &d) != 4) return NULL;
+
+    char query[256];
+    snprintf(query, sizeof(query), "%d.%d.%d.%d.origin.asn.cymru.com", d, c, b, a);
+
+    unsigned char response[512];
+    ns_msg handle;
+    ns_rr rr;
+
+    int len = res_query(query, ns_c_in, ns_t_txt, response, sizeof(response));
+    if (len < 0) return NULL;
+
+    if (ns_initparse(response, len, &handle) < 0) return NULL;
+    if (ns_parserr(&handle, ns_s_an, 0, &rr) < 0) return NULL;
+
+    const unsigned char *rdata = ns_rr_rdata(rr);
+    int txt_len = rdata[0];
+    char txt[256];
+    strncpy(txt, (char *)&rdata[1], txt_len);
+    txt[txt_len] = '\0';
+
+    sscanf(txt, "%15s", asn);
+    return asn;
+}
+
+void fetch_ip_ranges(const char *asn) {
     CURL *curl = curl_easy_init();
-    if (curl) {
-        char url[256];
-        snprintf(url, sizeof(url), "https://api.hackertarget.com/aslookup/?q=AS%s", asn);
+    if (!curl) return;
 
-        curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
+    char url[256];
+    snprintf(url, sizeof(url), "https://api.hackertarget.com/aslookup/?q=AS%s", asn);
 
-        CURLcode res = curl_easy_perform(curl);
-        if (res != CURLE_OK)
-            fprintf(stderr, "libcurl error: %s\n", curl_easy_strerror(res));
+    struct MemoryStruct chunk = {malloc(1), 0};
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
 
-        curl_easy_cleanup(curl);
+    CURLcode res = curl_easy_perform(curl);
+    if (res == CURLE_OK) {
+        printf(CYAN "\nIP Ranges:\n" RESET "%s\n", chunk.memory);
     } else {
-        fprintf(stderr, "Failed to initialize libcurl\n");
+        fprintf(stderr, RED "Error fetching IP ranges: %s\n" RESET, curl_easy_strerror(res));
     }
-    printf("\n");
+
+    curl_easy_cleanup(curl);
+    free(chunk.memory);
+}
+
+void fetch_bgpview_info(const char *asn) {
+    CURL *curl = curl_easy_init();
+    if (!curl) return;
+
+    char url[256];
+    snprintf(url, sizeof(url), "https://api.bgpview.io/asn/%s", asn);
+
+    struct MemoryStruct chunk = {malloc(1), 0};
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
+
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+        fprintf(stderr, RED "Error fetching BGPView info: %s\n" RESET, curl_easy_strerror(res));
+        curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return;
+    }
+
+    cJSON *root = cJSON_Parse(chunk.memory);
+    if (!root) {
+        fprintf(stderr, RED "Failed to parse JSON.\n" RESET);
+        curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return;
+    }
+
+    cJSON *data = cJSON_GetObjectItem(root, "data");
+    if (!data) {
+        fprintf(stderr, RED "No data in JSON.\n" RESET);
+        cJSON_Delete(root);
+        curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return;
+    }
+
+    printf(GREEN "\n\nASN Number: %d\n" RESET, cJSON_GetObjectItem(data, "asn")->valueint);
+    printf(GREEN "Name: %s\n" RESET, cJSON_GetObjectItem(data, "name")->valuestring);
+    printf(GREEN "Description: %s\n" RESET, cJSON_GetObjectItem(data, "description_short")->valuestring);
+    printf(GREEN "Country: %s\n" RESET, cJSON_GetObjectItem(data, "country_code")->valuestring);
+    printf(GREEN "Website: %s\n" RESET, cJSON_GetObjectItem(data, "website")->valuestring);
+
+    cJSON *emails = cJSON_GetObjectItem(data, "email_contacts");
+    if (emails) {
+        printf(CYAN "\nEmail Contacts:\n" RESET);
+        for (int i = 0; i < cJSON_GetArraySize(emails); i++) {
+            printf("  - %s\n", cJSON_GetArrayItem(emails, i)->valuestring);
+        }
+    }
+
+    cJSON *abuse = cJSON_GetObjectItem(data, "abuse_contacts");
+    if (abuse) {
+        printf(RED "\nAbuse Contacts:\n" RESET);
+        for (int i = 0; i < cJSON_GetArraySize(abuse); i++) {
+            printf("  - %s\n", cJSON_GetArrayItem(abuse, i)->valuestring);
+        }
+    }
+
+    cJSON *address = cJSON_GetObjectItem(data, "owner_address");
+    if (address) {
+        printf(YELLOW "\nOwner Address:\n" RESET);
+        for (int i = 0; i < cJSON_GetArraySize(address); i++) {
+            printf("  %s\n", cJSON_GetArrayItem(address, i)->valuestring);
+        }
+    }
+
+    printf(GREEN "\nTraffic Ratio: %s\n" RESET, cJSON_GetObjectItem(data, "traffic_ratio")->valuestring);
+    printf(GREEN "Updated: %s\n" RESET, cJSON_GetObjectItem(data, "date_updated")->valuestring);
+
+    cJSON_Delete(root);
+    curl_easy_cleanup(curl);
+    free(chunk.memory);
 }
 
 int main() {
-    char ip[100], reversed[100];
-    unsigned char buf[BUF_SIZE], *qname, *reader;
-    struct sockaddr_in dest;
-    struct DNS_HEADER *dns = NULL;
-    struct QUESTION *qinfo = NULL;
-
+    char ip[64];
     printf("Enter IP address: ");
-    scanf("%99s", ip);
+    scanf("%63s", ip);
 
-    reverse_ip(ip, reversed);
-
-    int sock = socket(AF_INET , SOCK_DGRAM , IPPROTO_UDP);
-    dest.sin_family = AF_INET;
-    dest.sin_port = htons(DNS_PORT);
-    dest.sin_addr.s_addr = inet_addr(DNS_SERVER);
-
-    dns = (struct DNS_HEADER *)&buf;
-    dns->id = (unsigned short) htons(getpid());
-    dns->qr = 0; dns->opcode = 0; dns->aa = 0; dns->tc = 0; dns->rd = 1;
-    dns->ra = 0; dns->z = 0; dns->rcode = 0;
-    dns->q_count = htons(1);
-    dns->ans_count = 0; dns->auth_count = 0; dns->add_count = 0;
-
-    qname = (unsigned char*)&buf[sizeof(struct DNS_HEADER)];
-    format_dns_name(qname, reversed);
-
-    qinfo = (struct QUESTION*)&buf[sizeof(struct DNS_HEADER) + strlen((const char*)qname) + 1];
-    qinfo->qtype = htons(16); // TXT
-    qinfo->qclass = htons(1); // IN
-
-    int packet_size = sizeof(struct DNS_HEADER) + strlen((const char*)qname) + 1 + sizeof(struct QUESTION);
-    sendto(sock, buf, packet_size, 0, (struct sockaddr*)&dest, sizeof(dest));
-
-    int i = sizeof(dest);
-    recvfrom(sock, buf, BUF_SIZE, 0, (struct sockaddr*)&dest, (socklen_t*)&i);
-
-    reader = &buf[packet_size + 12]; // Skip header and question
-
-    // Correct TXT record parsing
-    char txt[256] = {0};
-    int offset = 0;
-    int total_len = 0;
-    while (offset < BUF_SIZE && reader[offset] != 0) {
-        int chunk_len = reader[offset];
-        if (chunk_len + offset + 1 >= BUF_SIZE) break;
-        strncat(txt, (char*)&reader[offset + 1], chunk_len);
-        total_len += chunk_len;
-        offset += chunk_len + 1;
-    }
-    txt[total_len] = '\0';
-
-    printf("\nASN Info: %s\n", txt);
-
-    char asn[20];
-    char *token = strtok(txt, " |");
-    if (token != NULL) {
-        strncpy(asn, token, sizeof(asn));
-        asn[sizeof(asn) - 1] = '\0';
+    char *asn = get_asn_from_ip(ip);
+    if (!asn) {
+        fprintf(stderr, RED "Failed to resolve ASN from IP.\n" RESET);
+        return 1;
     }
 
-    printf("\nQuerying HackerTarget for ASN %s...\n\n", asn);
-    query_hackertarget(asn);
+    printf(GREEN "\nResolved ASN: %s\n" RESET, asn);
 
-    close(sock);
+    fetch_ip_ranges(asn);
+    fetch_bgpview_info(asn);
+
     return 0;
 }
