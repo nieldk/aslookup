@@ -20,7 +20,7 @@ jobs:
       run: curl -o aslookup.c https://raw.githubusercontent.com/nieldk/aslookup/refs/heads/main/aslookup.c
 
     - name: Compile C source file
-      run: gcc -Wall -Wextra -o aslookup aslookup.c
+      run: gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv
 
     - name: Package binary
       run: tar -czvf aslookup.tar.gz aslookup
