@@ -3,7 +3,7 @@ name: Build and Release Arch Package
 on:
   push:
     tags:
-      - '*'   # Run on any tag
+      - '*'
 
 permissions:
   contents: write
@@ -16,19 +16,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Arch Linux tools
+      - name: Build Arch package in Docker
         run: |
-          sudo apt-get update
-          sudo apt-get install -y arch-install-scripts fakeroot binutils gcc make
-
-      - name: Build Arch package
-        run: |
-          # Create a fake Arch environment for makepkg
-          sudo mkdir -p /etc/pacman.d
-          echo -e "[core]\nServer = https://mirror.rackspace.com/archlinux/core/os/x86_64" | sudo tee /etc/pacman.d/mirrorlist
-          sudo useradd -m builder
-          sudo chown -R builder:builder .
-          sudo -u builder bash -c "export HOME=/home/builder && makepkg -fs --noconfirm"
+          docker run --rm -v $PWD:/build -w /build archlinux:latest bash -c "
+            pacman -Syu --noconfirm base-devel gcc curl cjson &&
+            useradd -m builder &&
+            chown -R builder:builder /build &&
+            su builder -c 'cd /build && makepkg -fs --noconfirm'
+          "
 
       - name: Find built package
         id: findpkg
@@ -42,4 +37,4 @@ jobs:
           files: ${{ env.PKGFILE }}
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-          
+
