@@ -42,6 +42,24 @@ Example output:
 
 ![screenshot](sample-output.jpg)
 
+
+### Releases
+
+There are packages for Ubuntu and Arch Linux in releases
+Install with:
+
+Ubuntu:
+
+```bash
+sudo dpkg -i aslookup_1.0_amd64.deb
+```
+
+Arch:
+
+```bash
+sudo pacman -U aslookup-1.0.0-1-x86_64.pkg.tar.zst
+```
+
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for details.
