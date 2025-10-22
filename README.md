@@ -34,14 +34,10 @@ gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv
 ## Usage
 
 ```bash
-./aslookup
+./aslookup --help
+./aslookup -i <IP>
 ```
 
-Then enter an IP address when prompted:
-
-```
-Enter IP address: 94.231.103.111
-```
 Example output:
 
 ![screenshot](sample-output.jpg)
