@@ -1,0 +1,24 @@
+name: Build aslookup
+on:
+  push:
+    tags:
+      - '*'   # Run workflow on any tag push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev
+
+      - name: Compile aslookup.c
+        run: |
+          gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv
+      - name: Test run (optional)
+        run: |
+          ./aslookup --help
