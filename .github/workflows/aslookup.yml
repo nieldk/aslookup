@@ -1,12 +1,13 @@
-name: Build aslookup
+name: Build and Release Debian Package
 on:
   push:
     tags:
-      - '*'   # Run workflow on any tag push
+      - '*'   # Trigger on any tag
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -14,11 +15,19 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev
+          sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev checkinstall
 
-      - name: Compile aslookup.c
+      - name: Build binary
+        run: gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv
+
+      - name: Build .deb package
         run: |
-          gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv
-      - name: Test run (optional)
-        run: |
-          ./aslookup --help
+          sudo checkinstall --install=no --pkgname=aslookup --pkgversion=1.0 --default --pakdir=.
+
+      - name: Upload .deb to release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: aslookup_*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
