@@ -1,0 +1,45 @@
+name: Build and Release Arch Package
+
+on:
+  push:
+    tags:
+      - '*'   # Run on any tag
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Arch Linux tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y arch-install-scripts fakeroot binutils gcc make
+
+      - name: Build Arch package
+        run: |
+          # Create a fake Arch environment for makepkg
+          sudo mkdir -p /etc/pacman.d
+          echo -e "[core]\nServer = https://mirror.rackspace.com/archlinux/core/os/x86_64" | sudo tee /etc/pacman.d/mirrorlist
+          sudo useradd -m builder
+          sudo chown -R builder:builder .
+          sudo -u builder bash -c "export HOME=/home/builder && makepkg -fs --noconfirm"
+
+      - name: Find built package
+        id: findpkg
+        run: |
+          echo "PKGFILE=$(ls *.pkg.tar.zst | head -n1)" >> $GITHUB_ENV
+
+      - name: Upload Arch package to release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ env.PKGFILE }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          
