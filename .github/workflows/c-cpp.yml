@@ -50,4 +50,4 @@ jobs:
         with:
           files: aslookup_1.0_amd64.deb
         env:
-          ITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
