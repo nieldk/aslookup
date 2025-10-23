@@ -1,10 +1,11 @@
-# Maintainer: Your Name <your@email.com>
+# Maintainer: Niel Nielsen <nn@sec1.dk>
 pkgname=aslookup
 pkgver=1.0.0
 pkgrel=1
 arch=('x86_64')
+pkgdesc="A command-line tool to resolve ASN information and IP ranges for a given IP address, using Cymru and BGPView APIs. Supports colored output and JSON parsing."
 url="https://github.com/nieldk/aslookup"
-license=('GPL')
+license=('0BSD')
 depends=('curl' 'cjson')
 source=("$pkgname.c")
 sha256sums=('SKIP')
