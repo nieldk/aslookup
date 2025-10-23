@@ -62,7 +62,7 @@ sudo pacman -U aslookup-1.0.0-1-x86_64.pkg.tar.zst
 
 ## License
 
-This project is licensed under the MIT License. See the LICENSE file for details.
+This project is licensed under the BSD Zero Clause License. See the LICENSE file for details.
 
 ## Author
 
