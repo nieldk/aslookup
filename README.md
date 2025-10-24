@@ -36,6 +36,7 @@ gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv
 ```bash
 ./aslookup --help
 ./aslookup -i <IP>
+./aslookup -d <DOMAIN>
 ```
 
 Example output:
