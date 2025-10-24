@@ -60,6 +60,17 @@ Arch:
 sudo pacman -U aslookup-1.0.0-1-x86_64.pkg.tar.zst
 ```
 
+## Arch Linux Users
+
+If you find this package useful, please consider voting for it on the AUR!  
+More votes help increase visibility and the chance for inclusion in official Arch repositories.
+
+To vote, log in to the AUR website and click the "Vote" button on the package page.
+
+[You can find and vote for this package on the AUR page](https://aur.archlinux.org/packages/aslookup)
+
+Thank you for your support!
+
 ## License
 
 This project is licensed under the BSD Zero Clause License. See the LICENSE file for details.
