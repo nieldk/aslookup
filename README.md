@@ -34,9 +34,10 @@ gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv
 ## Usage
 
 ```bash
-./aslookup --help
-./aslookup -i <IP>
-./aslookup -d <DOMAIN>
+aslookup --help
+aslookup -i <IP>
+aslookup -d <DOMAIN>
+aslookup -f <FILE>
 ```
 
 Example output:
