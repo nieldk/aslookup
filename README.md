@@ -1,6 +1,7 @@
 # aslookup
 
-`aslookup` is a C program that performs Autonomous System Number (ASN) lookup for a given IP address. It uses raw DNS queries to Team Cymru's ASN mapping service to retrieve ASN information, then securely fetches associated IP ranges from HackerTarget using HTTPS via libcurl.
+`aslookup` is a C program that performs Autonomous System Number (ASN) lookup for a given IP address or domain.
+It uses raw DNS queries to Team Cymru's ASN mapping service to retrieve ASN information, then securely fetches associated IP ranges from HackerTarget using HTTPS via libcurl and contactinformation using bgpview (sadly this often returns an Internal Server error).
 
 ## Features
 
