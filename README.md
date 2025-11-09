@@ -39,6 +39,7 @@ aslookup --help
 aslookup -i <IP, IP ... >
 aslookup -d <DOMAIN, DOMAIN ... >
 aslookup -f <FILE>
+aslookup --version
 ```
 
 Example output:
@@ -54,13 +55,13 @@ Install with:
 Ubuntu:
 
 ```bash
-sudo dpkg -i aslookup_1.0_amd64.deb
+sudo dpkg -i aslookup_<version>_amd64.deb
 ```
 
 Arch:
 
 ```bash
-sudo pacman -U aslookup-1.0.0-1-x86_64.pkg.tar.zst
+sudo pacman -U aslookup-<version>-x86_64.pkg.tar.zst
 ```
 
 ## Arch Linux Users
