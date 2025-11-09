@@ -1,73 +1,38 @@
-on:
-  push:
-    tags:
-      - '*'
+- name: Build Alpine package in Docker
+    uses: addnab/docker-run-action@v3
+    with:
+      image: alpine:latest
+      options: -v ${{ github.workspace }}:/workspace
+      run: |
+        set -e
+        apk update
+        apk add gcc libc-dev curl-dev cjson-dev abuild fakeroot
 
-permissions:
-  contents: write
-  packages: write
+        RELEASE_VERSION="${GITHUB_REF#refs/tags/v}"
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+        cd /workspace
+        gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+        mkdir -p alpinepkg
+        cp aslookup alpinepkg/
 
-      - name: Set version from tag
-        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+        adduser -D builder
+        chown -R builder:builder alpinepkg
 
-      - name: Build Alpine package in Docker
-        uses: addnab/docker-run-action@v3
-        with:
-          image: alpine:latest
-          options: -v ${{ github.workspace }}:/workspace
-          run: |
-            set -e
-            apk update
-            apk add gcc libc-dev curl-dev cjson-dev abuild fakeroot
+cat <<EOF > alpinepkg/APKBUILD
+Contributor: Niel Nielsen nieldk@gmail.com
+pkgname=aslookup pkgver=${RELEASE_VERSION} pkgrel=1 pkgdesc="ASN lookup utility" url="https://github.com/nieldk/aslookup" arch="x86_64" license="MIT" depends="libc6 curl cjson" source="aslookup" builddir="$PWD" package() { install -Dm755 $srcdir/aslookup $pkgdir/usr/local/bin/aslookup } EOF
+        chown builder:builder alpinepkg/APKBUILD
 
-            # Set version from tag (strip leading 'v')
-            RELEASE_VERSION="${GITHUB_REF#refs/tags/v}"
+        su builder -c "cd /workspace/alpinepkg && abuild-keygen -a -n && fakeroot abuild -r"
 
-            cd /workspace
-            gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv
+        APK_FILE=$(find /workspace/alpinepkg -name '*.apk' | head -n 1)
+        cp "${APK_FILE}" /workspace/aslookup_${RELEASE_VERSION}_x86_64.apk
 
-            mkdir -p alpinepkg
-            cp aslookup alpinepkg/
-
-            adduser -D builder
-            chown -R builder:builder alpinepkg
-
-            # Write APKBUILD with the version substituted in
-            cat <<EOF > alpinepkg/APKBUILD
-# Contributor: Niel Nielsen <nieldk@gmail.com>
-pkgname=aslookup
-pkgver=${RELEASE_VERSION}
-pkgrel=1
-pkgdesc="ASN lookup utility"
-url="https://github.com/nieldk/aslookup"
-arch="x86_64"
-license="MIT"
-depends="libc6 curl cjson"
-source="aslookup"
-builddir="\$PWD"
-package() {
-  install -Dm755 \$srcdir/aslookup \$pkgdir/usr/local/bin/aslookup
-}
-EOF
-            chown builder:builder alpinepkg/APKBUILD
-
-            su builder -c "cd /workspace/alpinepkg && abuild-keygen -a -n && fakeroot abuild -r"
-
-            APK_FILE=$(find /workspace/alpinepkg -name '*.apk' | head -n 1)
-            cp \"${APK_FILE}\" /workspace/aslookup_${RELEASE_VERSION}_x86_64.apk
-
-      - name: Upload .apk to release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: aslookup_${{ env.RELEASE_VERSION }}_x86_64.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+  - name: Upload .apk to release
+    uses: softprops/action-gh-release@v2
+    if: startsWith(github.ref, 'refs/tags/')
+    with:
+      files: aslookup_${{ env.RELEASE_VERSION }}_x86_64.apk
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
