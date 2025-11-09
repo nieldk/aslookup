@@ -1,0 +1,106 @@
+name: Alpine Build and APK Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        ARCH: [x86_64, x86]
+        include:
+          - ARCH: x86_64
+            IMAGE: alpine:latest
+          - ARCH: x86 
+            IMAGE: i386/alpine:latest
+
+    name: Build for ${{ matrix.ARCH }}
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ matrix.IMAGE }}
+
+    steps:
+      - name: Checkout aslookup code
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies (Alpine) 🛠️
+        run: |
+          apk update || exit 1
+          apk add --no-cache alpine-sdk curl-dev
+
+      # --- Steps to Build cJSON from Source ---
+      - name: Clone cJSON
+        run: git clone https://github.com/DaveGamble/cJSON.git /tmp/cJSON || exit 1
+
+      - name: Build and Install cJSON
+        run: |
+          cd /tmp/cJSON
+          mkdir build
+          cd build
+          cmake -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=ON .. || exit 1
+          make || exit 1
+          make install || exit 1
+          ldconfig
+
+      # --- aslookup Build Steps ---
+      - name: Set version from tag
+        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Build binary
+        # FIX: Explicitly set LD_LIBRARY_PATH and -L flag to ensure the linker finds libcjson.so on 32-bit systems.
+        run: |
+          export LD_LIBRARY_PATH=/usr/lib:$LD_LIBRARY_PATH
+          gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -L/usr/lib || exit 1
+        
+      - name: Check and Prepare APK package structure
+        run: |
+          # CHECK: Ensure the binary was actually created and is executable
+          if [ ! -f aslookup ]; then 
+              echo "Error: aslookup binary was not created. The 'Build binary' step failed."
+              exit 1
+          fi
+          
+          # Prepare structure
+          mkdir -p pkg/usr/local/bin
+          cp aslookup pkg/usr/local/bin/
+          # Ensure the shared library is copied
+          mkdir -p pkg/usr/lib
+          cp /usr/lib/libcjson.so.1 pkg/usr/lib/
+
+      - name: Create the APK package
+        run: |
+          # 1. Create .PKGINFO with core metadata
+          echo "pkgname = aslookup" > pkg/.PKGINFO
+          echo "pkgver = $RELEASE_VERSION" >> pkg/.PKGINFO
+          echo "maintainer = Niel Nielsen <nieldk@gmail.com>" >> pkg/.PKGINFO
+          echo "url = https://github.com/nieldk/aslookup" >> pkg/.PKGINFO
+          echo "arch = ${{ matrix.ARCH }}" >> pkg/.PKGINFO 
+          echo "description = ASN lookup utility" >> pkg/.PKGINFO
+          echo "depend = libc6, libcurl4, libcjson" >> pkg/.PKGINFO
+
+          # 2. Package the files (data.tar.gz)
+          cd pkg
+          tar -czf data.tar.gz usr/
+
+          # 3. Package the metadata (control.tar.gz)
+          tar -czf control.tar.gz .PKGINFO 
+          
+          # 4. Create the final APK archive
+          tar -czf aslookup_${RELEASE_VERSION}_${{ matrix.ARCH }}.apk control.tar.gz data.tar.gz 
+
+          # Clean up temporary files 
+          rm control.tar.gz data.tar.gz .PKGINFO
+
+      - name: Upload .apk to release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: pkg/aslookup_${{ env.RELEASE_VERSION }}_${{ matrix.ARCH }}.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
