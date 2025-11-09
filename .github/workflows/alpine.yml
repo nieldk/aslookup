@@ -1,0 +1,76 @@
+name: Alpine Build and APK Release (with cJSON build)
+
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    # Use a standard runner, but execute all steps inside an Alpine container
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:latest
+
+    steps:
+      - name: Checkout aslookup code
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies (Alpine) 🛠️
+        # ADDED 'cmake' here to resolve the "cmake: not found" error.
+        run: |
+          apk update
+          apk add --no-cache build-base curl-dev git cmake 
+
+      # --- Steps to Build cJSON from Source ---
+      - name: Clone cJSON
+        run: git clone https://github.com/DaveGamble/cJSON.git /tmp/cJSON
+
+      - name: Build and Install cJSON
+        run: |
+          cd /tmp/cJSON
+          mkdir build
+          cd build
+          # This is the line that caused the error before installing cmake
+          cmake -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=ON ..
+          make
+          make install
+
+      # --- Original aslookup Steps (Modified) ---
+      - name: Set version from tag
+        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV"
+
+      - name: Build binary
+        run: gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv
+
+      - name: Prepare APK package structure
+        run: |
+          mkdir -p pkg/usr/local/bin
+          cp aslookup pkg/usr/local/bin/
+          mkdir -p pkg/usr/lib
+          cp /usr/lib/libcjson.so.1 pkg/usr/lib/
+
+      - name: Create the APK package
+        run: |
+          echo "pkgname = aslookup" > pkg/.PKGINFO
+          echo "pkgver = $RELEASE_VERSION" >> pkg/.PKGINFO
+          echo "maintainer = Niel Nielsen <nieldk@gmail.com>" >> pkg/.PKGINFO
+          echo "url = https://github.com/nieldk/aslookup" >> pkg/.PKGINFO
+
+          cd pkg
+          tar -czf control.tar.gz .PKGINFO 
+          tar -czf data.tar.gz usr/
+          
+          apk create --description "ASN lookup utility" --install-if "libc6, libcurl4, libcjson" aslookup_${RELEASE_VERSION}_x86_64.apk
+
+      - name: Upload .apk to release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: pkg/aslookup_${{ env.RELEASE_VERSION }}_x86_64.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
