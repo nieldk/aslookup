@@ -175,7 +175,7 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
 }
 
 void print_help(const char *progname, FILE *output) {
-    fprintf(output, CYAN "Usage: %s -i <options\n", progname);
+    fprintf(output, CYAN "Usage: %s -i <options>\n", progname);
     fprintf(output, CYAN "Options:\n");
     fprintf(output, WHITE " -i <IP[,IP,...]> Specify one or more IP addresses (comma-separated)\n");
     fprintf(output, WHITE " -d <domain[,domain,...]> Specify one or more domain names (comma-separated)\n");
