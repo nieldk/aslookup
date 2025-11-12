@@ -30,7 +30,7 @@ jobs:
 
       - name: Package executable and DLL
         run: |
-          copy ./curl-8.7.1_2-win64-mingw/bin/libcurl.dll .
+          powershell -Command "Copy-Item -Path ./curl-8.7.1_2-win64-mingw/libcurl.dll -Destination ."
           powershell -Command "Compress-Archive -Path aslookup-win.exe, libcurl.dll -DestinationPath aslookup-win.zip"
 
       - name: Upload Release Asset
