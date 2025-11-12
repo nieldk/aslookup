@@ -19,11 +19,13 @@ jobs:
       - name: Add MinGW to PATH
         run: echo "C:\Program Files\mingw-w64\x86_64-12.2.0-posix-seh-rt_v10-rev2\mingw64\bin" >> $GITHUB_PATH
 
+
       - name: Download libcurl for Windows
         run: curl -LO https://curl.se/windows/dl-8.7.1_2/curl-8.7.1_2-win64-mingw.zip
 
       - name: Extract libcurl ZIP
         run: powershell -Command "Expand-Archive -Path curl-8.7.1_2-win64-mingw.zip -DestinationPath ."
+
 
       - name: Build aslookup-win.exe
         run: gcc aslookup-win.c cJSON.c -o aslookup-win.exe -I. -I./curl-8.7.1_2-win64-mingw/include -L./curl-8.7.1_2-win64-mingw/lib -lcurl -lws2_32
