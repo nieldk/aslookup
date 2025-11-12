@@ -42,5 +42,3 @@ jobs:
           asset_path: ./aslookup-win.zip
           asset_name: aslookup-win.zip
           asset_content_type: application/zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
