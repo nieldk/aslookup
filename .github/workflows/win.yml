@@ -1,0 +1,55 @@
+name: Build and Release aslookup-win on Windows
+
+on:
+  push:
+    tags:
+      - 'v*'   # Only runs on version tags like v1.0, v2.1, etc.
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install MinGW
+        run: choco install mingw -y
+
+      - name: Add MinGW to PATH
+        run: |
+          echo "C:\Program Files\mingw-w64\x86_64-12.2.0-posix-seh-rt_v10-rev2\mingw64\bin" >> $GITHUB_PATH
+
+      - name: Download and extract libcurl for Windows
+        run: |
+          curl -LO https://curl.se/windows/dl-7.88.1_2/curl-7.88.1_2-win64-mingw.zip
+          tar -xf curl-7.88.1_2-win64-mingw.zip
+
+      - name: Build aslookup-win.exe
+        run: |
+          gcc aslookup-win.c cJSON.c -o aslookup-win.exe ^
+            -I. ^
+            -I./curl-7.88.1_2-win64-mingw/include ^
+            -L./curl-7.88.1_2-win64-mingw/lib ^
+            -lcurl -lws2_32
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./aslookup-win.exe
+          asset_name: aslookup-win.exe
+          asset_content_type: application/octet-stream
