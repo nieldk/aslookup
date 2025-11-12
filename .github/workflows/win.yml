@@ -26,22 +26,27 @@ jobs:
       - name: Extract libcurl ZIP
         run: powershell -Command "Expand-Archive -Path curl-8.7.1_2-win64-mingw.zip -DestinationPath ."
 
-      - name: Build aslookup-win.exe
-        run: gcc aslookup-win.c cJSON.c -o aslookup-win.exe -I. -I./curl-8.7.1_2-win64-mingw/include -L./curl-8.7.1_2-win64-mingw/lib -lcurl -lws2_32 -static
 
-      - name: Create or Update Release
-        uses: softprops/action-gh-release@v1
+      - name: Build aslookup-win.exe
+        run: gcc aslookup-win.c cJSON.c -o aslookup-win.exe -I. -I./curl-8.7.1_2-win64-mingw/include -L./curl-8.7.1_2-win64-mingw/lib -lcurl -lws2_32
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         with:
           tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Upload Release Asset
-        uses: softprops/action-gh-release@v1
-        with:
-          files: aslookup-win.exe
+        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./aslookup-win.exe
+          asset_name: aslookup-win.exe
+          asset_content_type: application/octet-stream
