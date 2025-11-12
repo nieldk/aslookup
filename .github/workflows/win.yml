@@ -28,6 +28,9 @@ jobs:
       - name: Build aslookup-win.exe
         run: gcc aslookup-win.c cJSON.c -o aslookup-win.exe -I. -I./curl-8.7.1_2-win64-mingw/include -L./curl-8.7.1_2-win64-mingw/lib -lcurl -lws2_32
 
+      - name: Set release version
+        run: echo "RELEASE_VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+
       - name: Package executable and DLL
         run: |
           powershell -Command "Copy-Item -Path ./curl-8.7.1_2-win64-mingw/bin/libcurl-x64.dll -Destination ./libcurl-x64.dll"
