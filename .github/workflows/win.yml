@@ -23,7 +23,8 @@ jobs:
       - name: Download and extract libcurl for Windows
         run: |
           curl -LO https://curl.se/windows/dl-7.88.1_2/curl-7.88.1_2-win64-mingw.zip
-          tar -xf curl-7.88.1_2-win64-mingw.zip
+          powershell -Command "Expand-Archive -Path curl-7.88.1_2-win64-mingw.zip -DestinationPath ."
+
 
       - name: Build aslookup-win.exe
         run: |
@@ -37,7 +38,7 @@ jobs:
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         with:
           tag_name: ${{ github.ref_name }}
           release_name: Release ${{ github.ref_name }}
