@@ -1,37 +1,30 @@
-name: Build and Release aslookup
+name: Build and Release aslookup (Linux)
 
 on:
   push:
     tags:
-      - 'v*'  # Runs only on version tags (e.g., v1.0.0)
+      - 'v*'
 
 jobs:
   build-and-release:
-    runs-on: windows-latest
-
-    env:
-      EXE_NAME: aslookup.exe
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-
       - name: Install dependencies
         run: |
-          git clone https://github.com/microsoft/vcpkg.git
-          .\vcpkg\bootstrap-vcpkg.bat
-          .\vcpkg\vcpkg.exe install curl cjson
+          sudo apt-get update
+          sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev
 
       - name: Compile aslookup.c
         run: |
-          cl aslookup.c /I.\vcpkg\installed\x64-windows\include /link /LIBPATH:.\vcpkg\installed\x64-windows\lib /out:${{ env.EXE_NAME }}
+          gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.EXE_NAME }}
+          files: aslookup
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
