@@ -25,16 +25,13 @@ jobs:
       - name: Extract libcurl ZIP
         run: powershell -Command "Expand-Archive -Path curl-8.7.1_2-win64-mingw.zip -DestinationPath ."
 
-      - name: List extracted files
-        run: ls curl-8.7.1_2-win64-mingw -Recurse
-
       - name: Build aslookup-win.exe
         run: gcc aslookup-win.c cJSON.c -o aslookup-win.exe -I. -I./curl-8.7.1_2-win64-mingw/include -L./curl-8.7.1_2-win64-mingw/lib -lcurl -lws2_32
 
       - name: Package executable and DLL
         run: |
-          powershell -Command "Copy-Item -Path ./curl-8.7.1_2-win64-mingw/libcurl.dll -Destination ."
-          powershell -Command "Compress-Archive -Path aslookup-win.exe, libcurl.dll -DestinationPath aslookup-win.zip"
+          powershell -Command "Copy-Item -Path ./curl-8.7.1_2-win64-mingw/bin/libcurl-x64.dll -Destination ."
+          powershell -Command "Compress-Archive -Path aslookup-win.exe, libcurl-x64.dll -DestinationPath aslookup-win.zip"
 
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
