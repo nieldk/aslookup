@@ -25,7 +25,6 @@ jobs:
           curl -LO https://curl.se/windows/dl-7.88.1_2/curl-7.88.1_2-win64-mingw.zip
           powershell -Command "Expand-Archive -Path curl-7.88.1_2-win64-mingw.zip -DestinationPath ."
 
-
       - name: Build aslookup-win.exe
         run: |
           gcc aslookup-win.c cJSON.c -o aslookup-win.exe ^
