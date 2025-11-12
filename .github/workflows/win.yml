@@ -25,13 +25,27 @@ jobs:
       - name: Extract libcurl ZIP
         run: powershell -Command "Expand-Archive -Path curl-8.7.1_2-win64-mingw.zip -DestinationPath ."
 
+      - name: List DLLs
+        run: Get-ChildItem -Path curl-8.7.1_2-win64-mingw -Filter *.dll -Recurse
+
       - name: Build aslookup-win.exe
         run: gcc aslookup-win.c cJSON.c -o aslookup-win.exe -I. -I./curl-8.7.1_2-win64-mingw/include -L./curl-8.7.1_2-win64-mingw/lib -lcurl -lws2_32
 
       - name: Package executable and DLL
         run: |
-          powershell -Command "Copy-Item -Path ./curl-8.7.1_2-win64-mingw/bin/libcurl-x64.dll -Destination ."
+          powershell -Command "Copy-Item -Path ./curl-8.7.1_2-win64-mingw/bin/libcurl-x64.dll -Destination ./libcurl-x64.dll"
           powershell -Command "Compress-Archive -Path aslookup-win.exe, libcurl-x64.dll -DestinationPath aslookup-win.zip"
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
 
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
