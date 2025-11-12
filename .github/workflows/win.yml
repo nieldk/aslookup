@@ -3,7 +3,7 @@ name: Build and Release aslookup-win on Windows
 on:
   push:
     tags:
-      - 'v*'   # Only runs on version tags like v1.0, v2.1, etc.
+      - 'v*'   # Runs only on version tags like v1.0
 
 jobs:
   build-windows:
@@ -17,21 +17,16 @@ jobs:
         run: choco install mingw -y
 
       - name: Add MinGW to PATH
-        run: |
-          echo "C:\Program Files\mingw-w64\x86_64-12.2.0-posix-seh-rt_v10-rev2\mingw64\bin" >> $GITHUB_PATH
+        run: echo "C:\Program Files\mingw-w64\x86_64-12.2.0-posix-seh-rt_v10-rev2\mingw64\bin" >> $GITHUB_PATH
 
-      - name: Download and extract libcurl for Windows
-        run: |
-          curl -LO https://curl.se/windows/dl-7.88.1_2/curl-7.88.1_2-win64-mingw.zip
-          powershell -Command "Expand-Archive -Path curl-7.88.1_2-win64-mingw.zip -DestinationPath ."
+      - name: Download libcurl for Windows
+        run: curl -LO https://curl.se/windows/dl-7.88.1_2/curl-7.88.1_2-win64-mingw.zip
+
+      - name: Extract libcurl ZIP
+        run: powershell -Command "Expand-Archive -Path curl-7.88.1_2-win64-mingw.zip -DestinationPath ."
 
       - name: Build aslookup-win.exe
-        run: |
-          gcc aslookup-win.c cJSON.c -o aslookup-win.exe ^
-            -I. ^
-            -I./curl-7.88.1_2-win64-mingw/include ^
-            -L./curl-7.88.1_2-win64-mingw/lib ^
-            -lcurl -lws2_32
+        run: gcc aslookup-win.c cJSON.c -o aslookup-win.exe -I. -I./curl-7.88.1_2-win64-mingw/include -L./curl-7.88.1_2-win64-mingw/lib -lcurl -lws2_32
 
       - name: Create Release
         id: create_release
