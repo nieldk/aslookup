@@ -26,8 +26,7 @@ jobs:
         run: powershell -Command "Expand-Archive -Path curl-8.7.1_2-win64-mingw.zip -DestinationPath ."
 
       - name: List extracted files
-        run: | 
-          dir ./curl-8.7.1_2-win64-mingw /s
+        run: ls curl-8.7.1_2-win64-mingw -Recurse
 
       - name: Build aslookup-win.exe
         run: gcc aslookup-win.c cJSON.c -o aslookup-win.exe -I. -I./curl-8.7.1_2-win64-mingw/include -L./curl-8.7.1_2-win64-mingw/lib -lcurl -lws2_32
