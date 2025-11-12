@@ -31,7 +31,7 @@ jobs:
       - name: Package executable and DLL
         run: |
           powershell -Command "Copy-Item -Path ./curl-8.7.1_2-win64-mingw/bin/libcurl-x64.dll -Destination ./libcurl-x64.dll"
-          powershell -Command "Compress-Archive -Path aslookup-win.exe, libcurl-x64.dll -DestinationPath aslookup-win.zip"
+          powershell -Command "Compress-Archive -Path aslookup-win.exe, libcurl-x64.dll -DestinationPath aslookup_${{ env.RELEASE_VERSION }}_win.zip"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -40,16 +40,6 @@ jobs:
           name: Release ${{ github.ref_name }}
           draft: false
           prerelease: false
-          files: aslookup-win.zip
+          files: aslookup_${{ env.RELEASE_VERSION }}_win.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./aslookup-win.zip
-          asset_name: aslookup-win.zip
-          asset_content_type: application/zip
