@@ -33,8 +33,8 @@ jobs:
 
       - name: Package executable and DLL
         run: |
-          powershell -Command "Copy-Item -Path ./curl-8.7.1_2-win64-mingw/bin/libcurl-x64.dll -Destination ./libcurl-x64.dll"
-          powershell -Command "Compress-Archive -Path aslookup-win.exe, libcurl-x64.dll -DestinationPath aslookup_${{ env.RELEASE_VERSION }}_win.zip"
+        powershell -Command "Copy-Item -Path ./curl-8.7.1_2-win64-mingw/bin/libcurl-x64.dll -Destination ./libcurl-x64.dll"
+        powershell -Command "Compress-Archive -Path aslookup-win.exe, libcurl-x64.dll -DestinationPath aslookup_${{ env.RELEASE_VERSION }}_win.zip"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
