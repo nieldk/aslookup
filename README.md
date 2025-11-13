@@ -51,7 +51,7 @@ Example output:
 
 ### Releases
 
-There are packages for Ubuntu, Arch and Alpine Linux in releases
+There are packages for Ubuntu, Arch, Alpine Linux and Windows in releases
 Install with:
 
 Ubuntu:
@@ -70,6 +70,12 @@ Alpine:
 
 ```bash
 sudo apk add --allow-untrusted aslookup_<version>_x86_64.apk
+```
+
+Windows:
+
+```bash
+unzip aslookup__win.zip
 ```
 
 ## Arch Linux Users
