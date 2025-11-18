@@ -39,39 +39,6 @@ void cleanup_winsock() {
     WSACleanup();
 }
 
-void print_latest_github_version() {
-    CURL *curl = curl_easy_init();
-    if (!curl) {
-        printf("curl init failed\n");
-        return;
-    }
-    struct MemoryStruct chunk = {malloc(1), 0};
-    curl_easy_setopt(curl, CURLOPT_URL, "https://api.github.com/repos/nieldk/aslookup/releases/latest");
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "aslookup-c-client/1.0");
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    CURLcode res = curl_easy_perform(curl);
-    if (res == CURLE_OK) {
-        cJSON *root = cJSON_Parse(chunk.memory);
-        if (root) {
-            cJSON *tag = cJSON_GetObjectItem(root, "tag_name");
-            if (tag && tag->valuestring) {
-                printf("Latest GitHub release: %s\n", tag->valuestring);
-            } else {
-                printf("Could not find version info in GitHub release.\n");
-            }
-            cJSON_Delete(root);
-        } else {
-            printf("Failed to parse JSON from GitHub.\n");
-        }
-    } else {
-        printf("Failed to fetch release info from GitHub (Code %d): %s\n", res, curl_easy_strerror(res));
-    }
-    curl_easy_cleanup(curl);
-    free(chunk.memory);
-}
-
 char *get_asn_from_ip(const char *ip) {
     static char asn[32] = {0};
     CURL *curl = curl_easy_init();
@@ -96,83 +63,6 @@ char *get_asn_from_ip(const char *ip) {
     return asn[0] ? asn : NULL;
 }
 
-void fetch_all_prefixes_from_asn(const char *asn, FILE *output) {
-    if (!asn || strncmp(asn, "AS", 2) != 0) {
-        fprintf(stderr, "Skipping prefix fetch: invalid ASN (%s)\n", asn ? asn : "NULL");
-        return;
-    }
-
-    CURL *curl = curl_easy_init();
-    if (!curl) return;
-
-    char url[256];
-    snprintf(url, sizeof(url), "https://api.bgpview.io/asn/%s/prefixes", asn + 2); // Remove "AS" for API
-    struct MemoryStruct chunk = {malloc(1), 0};
-
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-
-    CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK) {
-        fprintf(stderr, "Error fetching ASN prefixes (Code %d): %s\n", res, curl_easy_strerror(res));
-        curl_easy_cleanup(curl);
-        free(chunk.memory);
-        return;
-    }
-
-    cJSON *root = cJSON_Parse(chunk.memory);
-    if (!root) {
-        fprintf(stderr, "Failed to parse JSON for ASN prefixes.\n");
-        curl_easy_cleanup(curl);
-        free(chunk.memory);
-        return;
-    }
-
-    cJSON *data = cJSON_GetObjectItem(root, "data");
-    if (!data) {
-        fprintf(stderr, "No data in ASN prefix JSON.\n");
-        cJSON_Delete(root);
-        curl_easy_cleanup(curl);
-        free(chunk.memory);
-        return;
-    }
-
-    fprintf(output, "\nAll IP Prefixes for ASN %s:\n", asn);
-
-    // IPv4 prefixes
-    cJSON *ipv4_prefixes = cJSON_GetObjectItem(data, "ipv4_prefixes");
-    if (ipv4_prefixes) {
-        fprintf(output, "\nIPv4 Prefixes:\n");
-        for (int i = 0; i < cJSON_GetArraySize(ipv4_prefixes); i++) {
-            cJSON *prefix = cJSON_GetArrayItem(ipv4_prefixes, i);
-            cJSON *prefix_str = cJSON_GetObjectItem(prefix, "prefix");
-            if (prefix_str && prefix_str->valuestring) {
-                fprintf(output, " - %s\n", prefix_str->valuestring);
-            }
-        }
-    }
-
-    // IPv6 prefixes
-    cJSON *ipv6_prefixes = cJSON_GetObjectItem(data, "ipv6_prefixes");
-    if (ipv6_prefixes) {
-        fprintf(output, "\nIPv6 Prefixes:\n");
-        for (int i = 0; i < cJSON_GetArraySize(ipv6_prefixes); i++) {
-            cJSON *prefix = cJSON_GetArrayItem(ipv6_prefixes, i);
-            cJSON *prefix_str = cJSON_GetObjectItem(prefix, "prefix");
-            if (prefix_str && prefix_str->valuestring) {
-                fprintf(output, " - %s\n", prefix_str->valuestring);
-            }
-        }
-    }
-
-    cJSON_Delete(root);
-    curl_easy_cleanup(curl);
-    free(chunk.memory);
-}
-
 void fetch_bgpview_info(const char *asn, FILE *output) {
     if (!asn || strncmp(asn, "AS", 2) != 0) {
         fprintf(stderr, "Skipping BGPView ASN lookup: invalid ASN (%s)\n", asn ? asn : "NULL");
@@ -181,7 +71,7 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
     CURL *curl = curl_easy_init();
     if (!curl) return;
     char url[256];
-    snprintf(url, sizeof(url), "https://api.bgpview.io/asn/%s", asn);
+    snprintf(url, sizeof(url), "https://api.bgpview.io/asn/%s", asn + 2); // Remove "AS"
     struct MemoryStruct chunk = {malloc(1), 0};
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
@@ -219,6 +109,71 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
     if (desc && desc->valuestring) fprintf(output, "Description: %s\n", desc->valuestring);
     cJSON *country = cJSON_GetObjectItem(data, "country_code");
     if (country && country->valuestring) fprintf(output, "Country: %s\n", country->valuestring);
+    cJSON_Delete(root);
+    curl_easy_cleanup(curl);
+    free(chunk.memory);
+}
+
+void fetch_all_prefixes_from_asn(const char *asn, FILE *output) {
+    if (!asn || strncmp(asn, "AS", 2) != 0) {
+        fprintf(stderr, "Skipping prefix fetch: invalid ASN (%s)\n", asn ? asn : "NULL");
+        return;
+    }
+    CURL *curl = curl_easy_init();
+    if (!curl) return;
+    char url[256];
+    snprintf(url, sizeof(url), "https://api.bgpview.io/asn/%s/prefixes", asn + 2);
+    struct MemoryStruct chunk = {malloc(1), 0};
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+        fprintf(stderr, "Error fetching ASN prefixes (Code %d): %s\n", res, curl_easy_strerror(res));
+        curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return;
+    }
+    cJSON *root = cJSON_Parse(chunk.memory);
+    if (!root) {
+        fprintf(stderr, "Failed to parse JSON for ASN prefixes.\n");
+        curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return;
+    }
+    cJSON *data = cJSON_GetObjectItem(root, "data");
+    if (!data) {
+        fprintf(stderr, "No data in ASN prefix JSON.\n");
+        cJSON_Delete(root);
+        curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return;
+    }
+    fprintf(output, "\nAll IP Prefixes for ASN %s:\n", asn);
+    cJSON *ipv4_prefixes = cJSON_GetObjectItem(data, "ipv4_prefixes");
+    if (ipv4_prefixes) {
+        fprintf(output, "\nIPv4 Prefixes:\n");
+        for (int i = 0; i < cJSON_GetArraySize(ipv4_prefixes); i++) {
+            cJSON *prefix = cJSON_GetArrayItem(ipv4_prefixes, i);
+            cJSON *prefix_str = cJSON_GetObjectItem(prefix, "prefix");
+            if (prefix_str && prefix_str->valuestring) {
+                fprintf(output, " - %s\n", prefix_str->valuestring);
+            }
+        }
+    }
+    cJSON *ipv6_prefixes = cJSON_GetObjectItem(data, "ipv6_prefixes");
+    if (ipv6_prefixes) {
+        fprintf(output, "\nIPv6 Prefixes:\n");
+        for (int i = 0; i < cJSON_GetArraySize(ipv6_prefixes); i++) {
+            cJSON *prefix = cJSON_GetArrayItem(ipv6_prefixes, i);
+            cJSON *prefix_str = cJSON_GetObjectItem(prefix, "prefix");
+            if (prefix_str && prefix_str->valuestring) {
+                fprintf(output, " - %s\n", prefix_str->valuestring);
+            }
+        }
+    }
     cJSON_Delete(root);
     curl_easy_cleanup(curl);
     free(chunk.memory);
@@ -278,16 +233,6 @@ void fetch_bgpview_info_ip(const char *ip, FILE *output) {
     free(chunk.memory);
 }
 
-void print_help(const char *progname, FILE *output) {
-    fprintf(output, "Usage: %s <options>\n", progname);
-    fprintf(output, "Options:\n");
-    fprintf(output, " -i <IP[,IP,...]> Specify one or more IP addresses (comma-separated)\n");
-    fprintf(output, " -d <domain[,domain,...]> Specify one or more domain names (comma-separated)\n");
-    fprintf(output, " -f <file> Save output to a formatted text file\n");
-    fprintf(output, " --help Show this help message\n");
-    fprintf(output, " --version Show latest GitHub release version\n");
-}
-
 char *resolve_domain_to_ip(const char *domain) {
     struct addrinfo hints, *res;
     static char ip[INET6_ADDRSTRLEN] = {0};
@@ -303,6 +248,16 @@ char *resolve_domain_to_ip(const char *domain) {
     return ip;
 }
 
+void print_help(const char *progname, FILE *output) {
+    fprintf(output, "Usage: %s <options>\n", progname);
+    fprintf(output, "Options:\n");
+    fprintf(output, " -i <IP[,IP,...]> Specify one or more IP addresses (comma-separated)\n");
+    fprintf(output, " -d <domain[,domain,...]> Specify one or more domain names (comma-separated)\n");
+    fprintf(output, " -f <file> Save output to a formatted text file\n");
+    fprintf(output, " --help Show this help message\n");
+    fprintf(output, " --version Show latest GitHub release version\n");
+}
+
 int main(int argc, char *argv[]) {
     init_winsock();
 
@@ -312,11 +267,6 @@ int main(int argc, char *argv[]) {
     FILE *output = stdout;
 
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--version") == 0) {
-            print_latest_github_version();
-            cleanup_winsock();
-            return 0;
-        }
         if (strcmp(argv[i], "--help") == 0) {
             print_help(argv[0], stdout);
             cleanup_winsock();
@@ -363,8 +313,8 @@ int main(int argc, char *argv[]) {
                 fetch_bgpview_info_ip(token, output);
             } else {
                 fprintf(output, "Resolved ASN for IP %s: %s\n", token, asn);
-                fetch_all_prefixes_from_asn(asn, output);
                 fetch_bgpview_info(asn, output);
+                fetch_all_prefixes_from_asn(asn, output);
             }
             token = strtok(NULL, ",");
         }
@@ -383,8 +333,8 @@ int main(int argc, char *argv[]) {
                     fetch_bgpview_info_ip(resolved_ip, output);
                 } else {
                     fprintf(output, "Resolved ASN for domain %s (IP %s): %s\n", token, resolved_ip, asn);
-                    fetch_all_prefixes_from_asn(asn, output);
                     fetch_bgpview_info(asn, output);
+                    fetch_all_prefixes_from_asn(asn, output);
                 }
             }
             token = strtok(NULL, ",");
