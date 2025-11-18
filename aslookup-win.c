@@ -71,7 +71,7 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
     CURL *curl = curl_easy_init();
     if (!curl) return;
     char url[256];
-    snprintf(url, sizeof(url), "https://api.bgpview.io/asn/%s", asn + 2); // Remove "AS"
+    snprintf(url, sizeof(url), "https://api.bgpview.io/asn/%d", atoi(asn + 2));
     struct MemoryStruct chunk = {malloc(1), 0};
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
@@ -151,7 +151,7 @@ void fetch_all_prefixes_from_asn(const char *asn, FILE *output) {
     CURL *curl = curl_easy_init();
     if (!curl) return;
     char url[256];
-    snprintf(url, sizeof(url), "https://api.bgpview.io/asn/%s/prefixes", asn + 2);
+    snprintf(url, sizeof(url), "https://api.bgpview.io/asn/%d/prefixes", atoi(asn + 2));
     struct MemoryStruct chunk = {malloc(1), 0};
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
