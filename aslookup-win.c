@@ -5,7 +5,7 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <curl/curl.h>
-#include "cJSON.h" // Make sure cJSON.h and cJSON.c are included in your project
+#include "cJSON.h"
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -50,7 +50,7 @@ void print_latest_github_version() {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "aslookup-c-client/1.0");
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // ADDED: Bypass SSL verification for testing
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     CURLcode res = curl_easy_perform(curl);
     if (res == CURLE_OK) {
         cJSON *root = cJSON_Parse(chunk.memory);
@@ -66,16 +66,14 @@ void print_latest_github_version() {
             printf("Failed to parse JSON from GitHub.\n");
         }
     } else {
-        // MODIFIED: Added Code %d for debugging
         printf("Failed to fetch release info from GitHub (Code %d): %s\n", res, curl_easy_strerror(res));
     }
     curl_easy_cleanup(curl);
     free(chunk.memory);
 }
 
-// Uses hackertarget.com API for ASN lookup
 char *get_asn_from_ip(const char *ip) {
-    static char asn[16] = {0};
+    static char asn[32] = {0};
     CURL *curl = curl_easy_init();
     if (!curl) return NULL;
     char url[256];
@@ -85,14 +83,12 @@ char *get_asn_from_ip(const char *ip) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "aslookup-c-client/1.0");
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // ADDED: Bypass SSL verification for testing
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     CURLcode res = curl_easy_perform(curl);
-    if (res == CURLE_OK && chunk.size > 0) {
-        // The response is plain text, first line is ASN
-        sscanf(chunk.memory, "%15s", asn);
+    if (res == CURLE_OK && chunk.size > 0 && strstr(chunk.memory, "AS")) {
+        sscanf(chunk.memory, "%31s", asn);
     } else {
-        // MODIFIED: Added Code %d for debugging
-        fprintf(stderr, "Error resolving ASN from IP (Code %d): %s\n", res, curl_easy_strerror(res));
+        fprintf(stderr, "Error resolving ASN from IP %s (Code %d): %s\n", ip, res, curl_easy_strerror(res));
         asn[0] = '\0';
     }
     curl_easy_cleanup(curl);
@@ -101,26 +97,24 @@ char *get_asn_from_ip(const char *ip) {
 }
 
 void fetch_ip_ranges(const char *asn, FILE *output) {
+    if (!asn || strncmp(asn, "AS", 2) != 0) {
+        fprintf(stderr, "Skipping IP ranges: invalid ASN (%s)\n", asn ? asn : "NULL");
+        return;
+    }
     CURL *curl = curl_easy_init();
     if (!curl) return;
     char url[256];
-    
-    // FIX 1: Removed redundant "AS" prefix from URL construction. 
-    // This fixes cases where 'asn' already contains "AS" (e.g., "AS15169").
-    snprintf(url, sizeof(url), "https://api.hackertarget.com/aslookup/?q=%s", asn); 
-    
+    snprintf(url, sizeof(url), "https://api.hackertarget.com/aslookup/?q=%s", asn);
     struct MemoryStruct chunk = {malloc(1), 0};
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // ADDED: Bypass SSL verification for testing
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     CURLcode res = curl_easy_perform(curl);
-    
     if (res == CURLE_OK) {
         fprintf(output, "\nIP Ranges:\n%s\n", chunk.memory);
     } else {
-        // FIX 2: Added Code %d for debugging
         fprintf(stderr, "Error fetching IP ranges (Code %d): %s\n", res, curl_easy_strerror(res));
     }
     curl_easy_cleanup(curl);
@@ -128,6 +122,10 @@ void fetch_ip_ranges(const char *asn, FILE *output) {
 }
 
 void fetch_bgpview_info(const char *asn, FILE *output) {
+    if (!asn || strncmp(asn, "AS", 2) != 0) {
+        fprintf(stderr, "Skipping BGPView ASN lookup: invalid ASN (%s)\n", asn ? asn : "NULL");
+        return;
+    }
     CURL *curl = curl_easy_init();
     if (!curl) return;
     char url[256];
@@ -137,10 +135,9 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // ADDED: Bypass SSL verification for testing
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
-        // MODIFIED: Added Code %d for debugging
         fprintf(stderr, "Error fetching BGPView info (Code %d): %s\n", res, curl_easy_strerror(res));
         curl_easy_cleanup(curl);
         free(chunk.memory);
@@ -161,54 +158,69 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
         free(chunk.memory);
         return;
     }
-    
-    // NOTE: Added checks for NULL pointers for safer execution
+    fprintf(output, "\nBGPView ASN Info:\n");
     cJSON *asn_num = cJSON_GetObjectItem(data, "asn");
-    if (asn_num) fprintf(output, "\nASN Number: %d\n", asn_num->valueint);
-    
+    if (asn_num) fprintf(output, "ASN Number: %d\n", asn_num->valueint);
     cJSON *name = cJSON_GetObjectItem(data, "name");
     if (name && name->valuestring) fprintf(output, "Name: %s\n", name->valuestring);
-    
     cJSON *desc = cJSON_GetObjectItem(data, "description_short");
     if (desc && desc->valuestring) fprintf(output, "Description: %s\n", desc->valuestring);
-    
     cJSON *country = cJSON_GetObjectItem(data, "country_code");
     if (country && country->valuestring) fprintf(output, "Country: %s\n", country->valuestring);
-    
-    cJSON *website = cJSON_GetObjectItem(data, "website");
-    if (website && website->valuestring) fprintf(output, "Website: %s\n", website->valuestring);
-    
-    cJSON *emails = cJSON_GetObjectItem(data, "email_contacts");
-    if (emails) {
-        fprintf(output, "\nEmail Contacts:\n");
-        for (int i = 0; i < cJSON_GetArraySize(emails); i++) {
-            cJSON *email = cJSON_GetArrayItem(emails, i);
-            if (email && email->valuestring) fprintf(output, " - %s\n", email->valuestring);
-        }
-    }
-    cJSON *abuse = cJSON_GetObjectItem(data, "abuse_contacts");
-    if (abuse) {
-        fprintf(output, "\nAbuse Contacts:\n");
-        for (int i = 0; i < cJSON_GetArraySize(abuse); i++) {
-            cJSON *contact = cJSON_GetArrayItem(abuse, i);
-            if (contact && contact->valuestring) fprintf(output, " - %s\n", contact->valuestring);
-        }
-    }
-    cJSON *address = cJSON_GetObjectItem(data, "owner_address");
-    if (address) {
-        fprintf(output, "\nOwner Address:\n");
-        for (int i = 0; i < cJSON_GetArraySize(address); i++) {
-            cJSON *addr_line = cJSON_GetArrayItem(address, i);
-            if (addr_line && addr_line->valuestring) fprintf(output, " %s\n", addr_line->valuestring);
-        }
-    }
-    
-    cJSON *traffic = cJSON_GetObjectItem(data, "traffic_ratio");
-    if (traffic && traffic->valuestring) fprintf(output, "Traffic Ratio: %s\n", traffic->valuestring);
-    
-    cJSON *updated = cJSON_GetObjectItem(data, "date_updated");
-    if (updated && updated->valuestring) fprintf(output, "Updated: %s\n", updated->valuestring);
+    cJSON_Delete(root);
+    curl_easy_cleanup(curl);
+    free(chunk.memory);
+}
 
+void fetch_bgpview_info_ip(const char *ip, FILE *output) {
+    CURL *curl = curl_easy_init();
+    if (!curl) return;
+    char url[256];
+    snprintf(url, sizeof(url), "https://api.bgpview.io/ip/%s", ip);
+    struct MemoryStruct chunk = {malloc(1), 0};
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+        fprintf(stderr, "Error fetching BGPView IP info (Code %d): %s\n", res, curl_easy_strerror(res));
+        curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return;
+    }
+    cJSON *root = cJSON_Parse(chunk.memory);
+    if (!root) {
+        fprintf(stderr, "Failed to parse JSON.\n");
+        curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return;
+    }
+    cJSON *data = cJSON_GetObjectItem(root, "data");
+    if (!data) {
+        fprintf(stderr, "No data in JSON.\n");
+        cJSON_Delete(root);
+        curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return;
+    }
+    fprintf(output, "\nBGPView IP Info for %s:\n", ip);
+    cJSON *prefixes = cJSON_GetObjectItem(data, "prefixes");
+    if (prefixes) {
+        for (int i = 0; i < cJSON_GetArraySize(prefixes); i++) {
+            cJSON *prefix = cJSON_GetArrayItem(prefixes, i);
+            cJSON *asn = cJSON_GetObjectItem(prefix, "asn");
+            if (asn) {
+                fprintf(output, " ASN: %d\n", cJSON_GetObjectItem(asn, "asn")->valueint);
+                fprintf(output, " Name: %s\n", cJSON_GetObjectItem(asn, "name")->valuestring);
+            }
+            cJSON *prefix_str = cJSON_GetObjectItem(prefix, "prefix");
+            if (prefix_str && prefix_str->valuestring) {
+                fprintf(output, " Prefix: %s\n", prefix_str->valuestring);
+            }
+        }
+    }
     cJSON_Delete(root);
     curl_easy_cleanup(curl);
     free(chunk.memory);
@@ -239,7 +251,6 @@ char *resolve_domain_to_ip(const char *domain) {
     return ip;
 }
 
-// Simple argument parser for Windows (no getopt)
 int main(int argc, char *argv[]) {
     init_winsock();
 
@@ -290,12 +301,14 @@ int main(int argc, char *argv[]) {
     }
 
     char *token;
+
     if (strlen(ips) > 0) {
         token = strtok(ips, ",");
         while (token != NULL) {
             char *asn = get_asn_from_ip(token);
-            if (!asn) {
-                fprintf(stderr, "Failed to resolve ASN from IP: %s\n", token);
+            if (!asn || strncmp(asn, "AS", 2) != 0) {
+                fprintf(stderr, "ASN lookup failed for IP %s. Trying BGPView fallback...\n", token);
+                fetch_bgpview_info_ip(token, output);
             } else {
                 fprintf(output, "Resolved ASN for IP %s: %s\n", token, asn);
                 fetch_ip_ranges(asn, output);
@@ -304,6 +317,7 @@ int main(int argc, char *argv[]) {
             token = strtok(NULL, ",");
         }
     }
+
     if (strlen(domains) > 0) {
         token = strtok(domains, ",");
         while (token != NULL) {
@@ -312,8 +326,9 @@ int main(int argc, char *argv[]) {
                 fprintf(stderr, "Failed to resolve domain to IP: %s\n", token);
             } else {
                 char *asn = get_asn_from_ip(resolved_ip);
-                if (!asn) {
-                    fprintf(stderr, "Failed to resolve ASN from domain %s (IP %s)\n", token, resolved_ip);
+                if (!asn || strncmp(asn, "AS", 2) != 0) {
+                    fprintf(stderr, "ASN lookup failed for domain %s (IP %s). Trying BGPView fallback...\n", token, resolved_ip);
+                    fetch_bgpview_info_ip(resolved_ip, output);
                 } else {
                     fprintf(output, "Resolved ASN for domain %s (IP %s): %s\n", token, resolved_ip, asn);
                     fetch_ip_ranges(asn, output);
@@ -323,6 +338,7 @@ int main(int argc, char *argv[]) {
             token = strtok(NULL, ",");
         }
     }
+
     if (output != stdout) fclose(output);
     cleanup_winsock();
     return 0;
