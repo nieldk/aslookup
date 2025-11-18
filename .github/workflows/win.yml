@@ -28,7 +28,7 @@ jobs:
         run: powershell -Command "Expand-Archive -Path curl-8.7.1_2-win64-mingw.zip -DestinationPath ."
 
       - name: Build aslookup-win.exe
-        run: gcc aslookup-win.c cJSON.c -o aslookup-win.exe -I. -I./curl-8.7.1_2-win64-mingw/include -L./curl-8.7.1_2-win64-mingw/lib -lcurl -lws2_32 -DPROGRAM_VERSION='\"${{ github.ref_name }}\"'
+        run: gcc aslookup-win.c cJSON.c -o aslookup-win.exe -I. -I./curl-8.7.1_2-win64-mingw/include -L./curl-8.7.1_2-win64-mingw/lib -lcurl -lws2_32 -DPROGRAM_VERSION='"${{ github.ref_name }}"'
 
       - name: Set release version (Ensuring correct syntax for Windows shell)
         # GITHUB_REF_NAME already contains the tag (e.g., v1.3.0)
