@@ -9,6 +9,9 @@
 
 #pragma comment(lib, "ws2_32.lib")
 
+#define MAX_RETRIES 3
+#define RETRY_WAIT_SECONDS 5
+
 struct MemoryStruct {
     char *memory;
     size_t size;
@@ -67,29 +70,53 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
         fprintf(stderr, "Skipping BGPView ASN lookup: invalid ASN (%s)\n", asn ? asn : "NULL");
         return;
     }
+    
     CURL *curl = curl_easy_init();
     if (!curl) return;
     char url[256];
     snprintf(url, sizeof(url), "https://api.bgpview.io/asn/%d", atoi(asn + 2));
-    struct MemoryStruct chunk = {malloc(1), 0};
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK) {
-        fprintf(stderr, "Error fetching BGPView info (Code %d): %s\n", res, curl_easy_strerror(res));
-        curl_easy_cleanup(curl);
-        free(chunk.memory);
-        return;
-    }
-
-    long http_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
     
-    if (http_code == 429) {
-        fprintf(stderr, "\nBGPView API Rate Limit Exceeded (HTTP 429) for ASN info (%s). Please wait and try again.\n", asn);
+    int attempt = 0;
+    long http_code = 0;
+    CURLcode res;
+    struct MemoryStruct chunk;
+
+    while (attempt < MAX_RETRIES) {
+        // Reset memory for retry
+        chunk.memory = malloc(1);
+        chunk.size = 0;
+        
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        
+        res = curl_easy_perform(curl);
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+        if (res == CURLE_OK && http_code == 200) {
+            break; // Success
+        }
+
+        if (http_code == 429 && attempt < MAX_RETRIES - 1) {
+            fprintf(stderr, "\nBGPView API Rate Limit Exceeded (HTTP 429) for ASN info (%s). Retrying in %d seconds... (Attempt %d/%d)\n", 
+                    asn, RETRY_WAIT_SECONDS, attempt + 1, MAX_RETRIES);
+            Sleep(RETRY_WAIT_SECONDS * 1000); // Wait in milliseconds
+            free(chunk.memory);
+            attempt++;
+        } else {
+            if (res != CURLE_OK) {
+                fprintf(stderr, "\nError fetching BGPView info (Code %d): %s\n", res, curl_easy_strerror(res));
+            } else if (http_code != 200) {
+                fprintf(stderr, "\nBGPView API returned HTTP %ld for ASN info (%s). Skipping detailed lookup.\n", http_code, asn);
+            }
+            // If 429 on final attempt or non-recoverable error, break loop
+            break; 
+        }
+    }
+    
+    if (res != CURLE_OK || http_code != 200) {
         curl_easy_cleanup(curl);
         free(chunk.memory);
         return;
@@ -171,25 +198,47 @@ void fetch_all_prefixes_from_asn(const char *asn, FILE *output) {
     if (!curl) return;
     char url[256];
     snprintf(url, sizeof(url), "https://api.bgpview.io/asn/%d/prefixes", atoi(asn + 2));
-    struct MemoryStruct chunk = {malloc(1), 0};
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK) {
-        fprintf(stderr, "Error fetching ASN prefixes (Code %d): %s\n", res, curl_easy_strerror(res));
-        curl_easy_cleanup(curl);
-        free(chunk.memory);
-        return;
-    }
-
+    
+    int attempt = 0;
     long http_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    CURLcode res;
+    struct MemoryStruct chunk;
+    
+    while (attempt < MAX_RETRIES) {
+        // Reset memory for retry
+        chunk.memory = malloc(1);
+        chunk.size = 0;
+        
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        
+        res = curl_easy_perform(curl);
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
 
-    if (http_code == 429) {
-        fprintf(stderr, "\nBGPView API Rate Limit Exceeded (HTTP 429) for ASN prefixes (%s). Please wait and try again.\n", asn);
+        if (res == CURLE_OK && http_code == 200) {
+            break; // Success
+        }
+
+        if (http_code == 429 && attempt < MAX_RETRIES - 1) {
+            fprintf(stderr, "\nBGPView API Rate Limit Exceeded (HTTP 429) for ASN prefixes (%s). Retrying in %d seconds... (Attempt %d/%d)\n", 
+                    asn, RETRY_WAIT_SECONDS, attempt + 1, MAX_RETRIES);
+            Sleep(RETRY_WAIT_SECONDS * 1000); 
+            free(chunk.memory);
+            attempt++;
+        } else {
+            if (res != CURLE_OK) {
+                fprintf(stderr, "\nError fetching ASN prefixes (Code %d): %s\n", res, curl_easy_strerror(res));
+            } else if (http_code != 200) {
+                fprintf(stderr, "\nBGPView API returned HTTP %ld for ASN prefixes (%s). Skipping prefix listing.\n", http_code, asn);
+            }
+            break; 
+        }
+    }
+    
+    if (res != CURLE_OK || http_code != 200) {
         curl_easy_cleanup(curl);
         free(chunk.memory);
         return;
@@ -252,25 +301,48 @@ int fetch_bgpview_info_ip(const char *ip, FILE *output) {
     if (!curl) return 0;
     char url[256];
     snprintf(url, sizeof(url), "https://api.bgpview.io/ip/%s", ip);
-    struct MemoryStruct chunk = {malloc(1), 0};
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK) {
-        fprintf(stderr, "Error fetching BGPView IP info (Code %d): %s\n", res, curl_easy_strerror(res));
-        curl_easy_cleanup(curl);
-        free(chunk.memory);
-        return 0;
+    
+    int attempt = 0;
+    long http_code = 0;
+    CURLcode res;
+    struct MemoryStruct chunk;
+    int asn_value = 0;
+
+    while (attempt < MAX_RETRIES) {
+        // Reset memory for retry
+        chunk.memory = malloc(1);
+        chunk.size = 0;
+        
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        
+        res = curl_easy_perform(curl);
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+        if (res == CURLE_OK && http_code == 200) {
+            break; // Success
+        }
+
+        if (http_code == 429 && attempt < MAX_RETRIES - 1) {
+            fprintf(stderr, "\nBGPView API Rate Limit Exceeded (HTTP 429) for IP info (%s). Retrying in %d seconds... (Attempt %d/%d)\n", 
+                    ip, RETRY_WAIT_SECONDS, attempt + 1, MAX_RETRIES);
+            Sleep(RETRY_WAIT_SECONDS * 1000); 
+            free(chunk.memory);
+            attempt++;
+        } else {
+            if (res != CURLE_OK) {
+                fprintf(stderr, "\nError fetching BGPView IP info (Code %d): %s\n", res, curl_easy_strerror(res));
+            } else if (http_code != 200) {
+                fprintf(stderr, "\nBGPView API returned HTTP %ld for IP info (%s). Skipping IP summary.\n", http_code, ip);
+            }
+            break; 
+        }
     }
 
-    long http_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-
-    if (http_code == 429) {
-        fprintf(stderr, "\nBGPView API Rate Limit Exceeded (HTTP 429) for IP info (%s). Please wait and try again.\n", ip);
+    if (res != CURLE_OK || http_code != 200) {
         curl_easy_cleanup(curl);
         free(chunk.memory);
         return 0;
@@ -302,7 +374,6 @@ int fetch_bgpview_info_ip(const char *ip, FILE *output) {
     
     // Print summary info from IP lookup
     fprintf(output, "\nBGPView IP Summary for %s:\n", ip);
-    int asn_value = 0;
     cJSON *prefixes = cJSON_GetObjectItem(data, "prefixes");
     
     if (prefixes && cJSON_GetArraySize(prefixes) > 0) {
