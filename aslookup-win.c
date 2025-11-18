@@ -109,6 +109,35 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
     if (desc && desc->valuestring) fprintf(output, "Description: %s\n", desc->valuestring);
     cJSON *country = cJSON_GetObjectItem(data, "country_code");
     if (country && country->valuestring) fprintf(output, "Country: %s\n", country->valuestring);
+
+    // Contact info
+    cJSON *emails = cJSON_GetObjectItem(data, "email_contacts");
+    if (emails) {
+        fprintf(output, "\nEmail Contacts:\n");
+        for (int i = 0; i < cJSON_GetArraySize(emails); i++) {
+            cJSON *email = cJSON_GetArrayItem(emails, i);
+            if (email && email->valuestring) fprintf(output, " - %s\n", email->valuestring);
+        }
+    }
+
+    cJSON *abuse = cJSON_GetObjectItem(data, "abuse_contacts");
+    if (abuse) {
+        fprintf(output, "\nAbuse Contacts:\n");
+        for (int i = 0; i < cJSON_GetArraySize(abuse); i++) {
+            cJSON *contact = cJSON_GetArrayItem(abuse, i);
+            if (contact && contact->valuestring) fprintf(output, " - %s\n", contact->valuestring);
+        }
+    }
+
+    cJSON *address = cJSON_GetObjectItem(data, "owner_address");
+    if (address) {
+        fprintf(output, "\nOwner Address:\n");
+        for (int i = 0; i < cJSON_GetArraySize(address); i++) {
+            cJSON *addr_line = cJSON_GetArrayItem(address, i);
+            if (addr_line && addr_line->valuestring) fprintf(output, " %s\n", addr_line->valuestring);
+        }
+    }
+
     cJSON_Delete(root);
     curl_easy_cleanup(curl);
     free(chunk.memory);
@@ -179,9 +208,9 @@ void fetch_all_prefixes_from_asn(const char *asn, FILE *output) {
     free(chunk.memory);
 }
 
-void fetch_bgpview_info_ip(const char *ip, FILE *output) {
+int fetch_bgpview_info_ip(const char *ip, FILE *output) {
     CURL *curl = curl_easy_init();
-    if (!curl) return;
+    if (!curl) return 0;
     char url[256];
     snprintf(url, sizeof(url), "https://api.bgpview.io/ip/%s", ip);
     struct MemoryStruct chunk = {malloc(1), 0};
@@ -195,14 +224,14 @@ void fetch_bgpview_info_ip(const char *ip, FILE *output) {
         fprintf(stderr, "Error fetching BGPView IP info (Code %d): %s\n", res, curl_easy_strerror(res));
         curl_easy_cleanup(curl);
         free(chunk.memory);
-        return;
+        return 0;
     }
     cJSON *root = cJSON_Parse(chunk.memory);
     if (!root) {
         fprintf(stderr, "Failed to parse JSON.\n");
         curl_easy_cleanup(curl);
         free(chunk.memory);
-        return;
+        return 0;
     }
     cJSON *data = cJSON_GetObjectItem(root, "data");
     if (!data) {
@@ -210,16 +239,18 @@ void fetch_bgpview_info_ip(const char *ip, FILE *output) {
         cJSON_Delete(root);
         curl_easy_cleanup(curl);
         free(chunk.memory);
-        return;
+        return 0;
     }
     fprintf(output, "\nBGPView IP Info for %s:\n", ip);
+    int asn_value = 0;
     cJSON *prefixes = cJSON_GetObjectItem(data, "prefixes");
     if (prefixes) {
         for (int i = 0; i < cJSON_GetArraySize(prefixes); i++) {
             cJSON *prefix = cJSON_GetArrayItem(prefixes, i);
             cJSON *asn = cJSON_GetObjectItem(prefix, "asn");
             if (asn) {
-                fprintf(output, " ASN: %d\n", cJSON_GetObjectItem(asn, "asn")->valueint);
+                asn_value = cJSON_GetObjectItem(asn, "asn")->valueint;
+                fprintf(output, " ASN: %d\n", asn_value);
                 fprintf(output, " Name: %s\n", cJSON_GetObjectItem(asn, "name")->valuestring);
             }
             cJSON *prefix_str = cJSON_GetObjectItem(prefix, "prefix");
@@ -231,6 +262,7 @@ void fetch_bgpview_info_ip(const char *ip, FILE *output) {
     cJSON_Delete(root);
     curl_easy_cleanup(curl);
     free(chunk.memory);
+    return asn_value;
 }
 
 char *resolve_domain_to_ip(const char *domain) {
@@ -255,7 +287,6 @@ void print_help(const char *progname, FILE *output) {
     fprintf(output, " -d <domain[,domain,...]> Specify one or more domain names (comma-separated)\n");
     fprintf(output, " -f <file> Save output to a formatted text file\n");
     fprintf(output, " --help Show this help message\n");
-    fprintf(output, " --version Show latest GitHub release version\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -310,7 +341,13 @@ int main(int argc, char *argv[]) {
             char *asn = get_asn_from_ip(token);
             if (!asn || strncmp(asn, "AS", 2) != 0) {
                 fprintf(stderr, "ASN lookup failed for IP %s. Trying BGPView fallback...\n", token);
-                fetch_bgpview_info_ip(token, output);
+                int asn_num = fetch_bgpview_info_ip(token, output);
+                if (asn_num > 0) {
+                    char asn_str[16];
+                    snprintf(asn_str, sizeof(asn_str), "AS%d", asn_num);
+                    fetch_bgpview_info(asn_str, output);
+                    fetch_all_prefixes_from_asn(asn_str, output);
+                }
             } else {
                 fprintf(output, "Resolved ASN for IP %s: %s\n", token, asn);
                 fetch_bgpview_info(asn, output);
@@ -330,7 +367,13 @@ int main(int argc, char *argv[]) {
                 char *asn = get_asn_from_ip(resolved_ip);
                 if (!asn || strncmp(asn, "AS", 2) != 0) {
                     fprintf(stderr, "ASN lookup failed for domain %s (IP %s). Trying BGPView fallback...\n", token, resolved_ip);
-                    fetch_bgpview_info_ip(resolved_ip, output);
+                    int asn_num = fetch_bgpview_info_ip(resolved_ip, output);
+                    if (asn_num > 0) {
+                        char asn_str[16];
+                        snprintf(asn_str, sizeof(asn_str), "AS%d", asn_num);
+                        fetch_bgpview_info(asn_str, output);
+                        fetch_all_prefixes_from_asn(asn_str, output);
+                    }
                 } else {
                     fprintf(output, "Resolved ASN for domain %s (IP %s): %s\n", token, resolved_ip, asn);
                     fetch_bgpview_info(asn, output);
