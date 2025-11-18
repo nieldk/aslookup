@@ -29,9 +29,8 @@ jobs:
 
       - name: Build aslookup-win.exe
   # Inject the GitHub tag name (e.g., v1.3.0) as the PROGRAM_VERSION macro.
-  # The escape sequence ensures it's passed as a C string literal.
-        run: gcc aslookup-win.c cJSON.c -o aslookup-win.exe -I. -I./curl-8.7.1_2-win64-mingw/include -L./curl-8.7.1_2-win64-mingw/lib -lcurl -lws2_32 -DPROGRAM_VERSION="\"${{ github.ref_name }}\""
-
+  # The escaping is now simplified and more robust: the shell sees ' "-DPROGRAM_VERSION="v1.3.2" " '
+          run: gcc aslookup-win.c cJSON.c -o aslookup-win.exe -I. -I./curl-8.7.1_2-win64-mingw/include -L./curl-8.7.1_2-win64-mingw/lib -lcurl -lws2_32 -DPROGRAM_VERSION='\"${{ github.ref_name }}\"'
 
       - name: Set release version (Ensuring correct syntax for Windows shell)
         # GITHUB_REF_NAME already contains the tag (e.g., v1.3.0)
