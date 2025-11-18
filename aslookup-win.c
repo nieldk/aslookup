@@ -84,10 +84,19 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
         free(chunk.memory);
         return;
     }
+
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
     
-    // --- ENHANCED ERROR CHECK 1 (Size) ---
+    if (http_code == 429) {
+        fprintf(stderr, "\nBGPView API Rate Limit Exceeded (HTTP 429) for ASN info (%s). Please wait and try again.\n", asn);
+        curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return;
+    }
+    
     if (chunk.size == 0) {
-        fprintf(stderr, "BGPView API returned an empty response for ASN info (%s).\n", asn);
+        fprintf(stderr, "\nBGPView API returned an empty response for ASN info (%s).\n", asn);
         curl_easy_cleanup(curl);
         free(chunk.memory);
         return;
@@ -95,8 +104,7 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
 
     cJSON *root = cJSON_Parse(chunk.memory);
     if (!root) {
-        // --- ENHANCED ERROR CHECK 2 (JSON Parse Failure) ---
-        fprintf(stderr, "Failed to parse JSON for ASN info (%s). Response snippet: '%.50s'\n", asn, chunk.memory);
+        fprintf(stderr, "\nFailed to parse JSON for ASN info (%s). HTTP Code: %ld. Response snippet: '%.50s'\n", asn, http_code, chunk.memory);
         curl_easy_cleanup(curl);
         free(chunk.memory);
         return;
@@ -176,10 +184,19 @@ void fetch_all_prefixes_from_asn(const char *asn, FILE *output) {
         free(chunk.memory);
         return;
     }
+
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+    if (http_code == 429) {
+        fprintf(stderr, "\nBGPView API Rate Limit Exceeded (HTTP 429) for ASN prefixes (%s). Please wait and try again.\n", asn);
+        curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return;
+    }
     
-    // --- ENHANCED ERROR CHECK 1 (Size) ---
     if (chunk.size == 0) {
-        fprintf(stderr, "BGPView API returned an empty response for ASN prefixes (%s).\n", asn);
+        fprintf(stderr, "\nBGPView API returned an empty response for ASN prefixes (%s).\n", asn);
         curl_easy_cleanup(curl);
         free(chunk.memory);
         return;
@@ -187,8 +204,7 @@ void fetch_all_prefixes_from_asn(const char *asn, FILE *output) {
 
     cJSON *root = cJSON_Parse(chunk.memory);
     if (!root) {
-        // --- ENHANCED ERROR CHECK 2 (JSON Parse Failure) ---
-        fprintf(stderr, "Failed to parse JSON for ASN prefixes (%s). Response snippet: '%.50s'\n", asn, chunk.memory);
+        fprintf(stderr, "\nFailed to parse JSON for ASN prefixes (%s). HTTP Code: %ld. Response snippet: '%.50s'\n", asn, http_code, chunk.memory);
         curl_easy_cleanup(curl);
         free(chunk.memory);
         return;
@@ -249,10 +265,19 @@ int fetch_bgpview_info_ip(const char *ip, FILE *output) {
         free(chunk.memory);
         return 0;
     }
+
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+    if (http_code == 429) {
+        fprintf(stderr, "\nBGPView API Rate Limit Exceeded (HTTP 429) for IP info (%s). Please wait and try again.\n", ip);
+        curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return 0;
+    }
     
-    // Check size before parsing, though IP lookup usually provides a fallback ASN
     if (chunk.size == 0) {
-        fprintf(stderr, "BGPView API returned an empty response for IP info (%s).\n", ip);
+        fprintf(stderr, "\nBGPView API returned an empty response for IP info (%s).\n", ip);
         curl_easy_cleanup(curl);
         free(chunk.memory);
         return 0;
@@ -260,7 +285,7 @@ int fetch_bgpview_info_ip(const char *ip, FILE *output) {
     
     cJSON *root = cJSON_Parse(chunk.memory);
     if (!root) {
-        fprintf(stderr, "Failed to parse JSON for BGPView IP info (%s). Response snippet: '%.50s'\n", ip, chunk.memory);
+        fprintf(stderr, "\nFailed to parse JSON for BGPView IP info (%s). HTTP Code: %ld. Response snippet: '%.50s'\n", ip, http_code, chunk.memory);
         curl_easy_cleanup(curl);
         free(chunk.memory);
         return 0;
