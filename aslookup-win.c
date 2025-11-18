@@ -55,7 +55,8 @@ char *get_asn_from_ip(const char *ip) {
     if (res == CURLE_OK && chunk.size > 0 && strstr(chunk.memory, "AS")) {
         sscanf(chunk.memory, "%31s", asn);
     } else {
-        fprintf(stderr, "Error resolving ASN from IP %s (Code %d): %s\n", ip, res, curl_easy_strerror(res));
+        // Suppress error message here as BGPView is the preferred fallback
+        // fprintf(stderr, "Error resolving ASN from IP %s (Code %d): %s\n", ip, res, curl_easy_strerror(res));
         asn[0] = '\0';
     }
     curl_easy_cleanup(curl);
@@ -112,7 +113,7 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
 
     // Contact info
     cJSON *emails = cJSON_GetObjectItem(data, "email_contacts");
-    if (emails) {
+    if (emails && cJSON_GetArraySize(emails) > 0) {
         fprintf(output, "\nEmail Contacts:\n");
         for (int i = 0; i < cJSON_GetArraySize(emails); i++) {
             cJSON *email = cJSON_GetArrayItem(emails, i);
@@ -121,7 +122,7 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
     }
 
     cJSON *abuse = cJSON_GetObjectItem(data, "abuse_contacts");
-    if (abuse) {
+    if (abuse && cJSON_GetArraySize(abuse) > 0) {
         fprintf(output, "\nAbuse Contacts:\n");
         for (int i = 0; i < cJSON_GetArraySize(abuse); i++) {
             cJSON *contact = cJSON_GetArrayItem(abuse, i);
@@ -130,7 +131,7 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
     }
 
     cJSON *address = cJSON_GetObjectItem(data, "owner_address");
-    if (address) {
+    if (address && cJSON_GetArraySize(address) > 0) {
         fprintf(output, "\nOwner Address:\n");
         for (int i = 0; i < cJSON_GetArraySize(address); i++) {
             cJSON *addr_line = cJSON_GetArrayItem(address, i);
@@ -182,7 +183,7 @@ void fetch_all_prefixes_from_asn(const char *asn, FILE *output) {
     }
     fprintf(output, "\nAll IP Prefixes for ASN %s:\n", asn);
     cJSON *ipv4_prefixes = cJSON_GetObjectItem(data, "ipv4_prefixes");
-    if (ipv4_prefixes) {
+    if (ipv4_prefixes && cJSON_GetArraySize(ipv4_prefixes) > 0) {
         fprintf(output, "\nIPv4 Prefixes:\n");
         for (int i = 0; i < cJSON_GetArraySize(ipv4_prefixes); i++) {
             cJSON *prefix = cJSON_GetArrayItem(ipv4_prefixes, i);
@@ -193,7 +194,7 @@ void fetch_all_prefixes_from_asn(const char *asn, FILE *output) {
         }
     }
     cJSON *ipv6_prefixes = cJSON_GetObjectItem(data, "ipv6_prefixes");
-    if (ipv6_prefixes) {
+    if (ipv6_prefixes && cJSON_GetArraySize(ipv6_prefixes) > 0) {
         fprintf(output, "\nIPv6 Prefixes:\n");
         for (int i = 0; i < cJSON_GetArraySize(ipv6_prefixes); i++) {
             cJSON *prefix = cJSON_GetArrayItem(ipv6_prefixes, i);
@@ -228,37 +229,48 @@ int fetch_bgpview_info_ip(const char *ip, FILE *output) {
     }
     cJSON *root = cJSON_Parse(chunk.memory);
     if (!root) {
-        fprintf(stderr, "Failed to parse JSON.\n");
+        fprintf(stderr, "Failed to parse JSON for BGPView IP info.\n");
         curl_easy_cleanup(curl);
         free(chunk.memory);
         return 0;
     }
     cJSON *data = cJSON_GetObjectItem(root, "data");
     if (!data) {
-        fprintf(stderr, "No data in JSON.\n");
+        fprintf(stderr, "No data in BGPView IP JSON.\n");
         cJSON_Delete(root);
         curl_easy_cleanup(curl);
         free(chunk.memory);
         return 0;
     }
-    fprintf(output, "\nBGPView IP Info for %s:\n", ip);
+    
+    // Print summary info from IP lookup
+    fprintf(output, "\nBGPView IP Summary for %s:\n", ip);
     int asn_value = 0;
     cJSON *prefixes = cJSON_GetObjectItem(data, "prefixes");
-    if (prefixes) {
-        for (int i = 0; i < cJSON_GetArraySize(prefixes); i++) {
-            cJSON *prefix = cJSON_GetArrayItem(prefixes, i);
-            cJSON *asn = cJSON_GetObjectItem(prefix, "asn");
-            if (asn) {
-                asn_value = cJSON_GetObjectItem(asn, "asn")->valueint;
-                fprintf(output, " ASN: %d\n", asn_value);
-                fprintf(output, " Name: %s\n", cJSON_GetObjectItem(asn, "name")->valuestring);
-            }
+    
+    // Attempt to get the first ASN found for this IP
+    if (prefixes && cJSON_GetArraySize(prefixes) > 0) {
+        cJSON *prefix = cJSON_GetArrayItem(prefixes, 0); // Get the first prefix object
+        cJSON *asn = cJSON_GetObjectItem(prefix, "asn");
+        
+        if (asn) {
+            cJSON *asn_num = cJSON_GetObjectItem(asn, "asn");
+            cJSON *name = cJSON_GetObjectItem(asn, "name");
             cJSON *prefix_str = cJSON_GetObjectItem(prefix, "prefix");
+
+            if (asn_num) {
+                asn_value = asn_num->valueint;
+                fprintf(output, " - Main ASN: %d\n", asn_value);
+            }
+            if (name && name->valuestring) {
+                fprintf(output, " - Name: %s\n", name->valuestring);
+            }
             if (prefix_str && prefix_str->valuestring) {
-                fprintf(output, " Prefix: %s\n", prefix_str->valuestring);
+                fprintf(output, " - Prefix: %s\n", prefix_str->valuestring);
             }
         }
     }
+    
     cJSON_Delete(root);
     curl_easy_cleanup(curl);
     free(chunk.memory);
@@ -335,28 +347,42 @@ int main(int argc, char *argv[]) {
 
     char *token;
 
+    // --- Start IP processing logic (FIXED) ---
     if (strlen(ips) > 0) {
         token = strtok(ips, ",");
         while (token != NULL) {
-            char *asn = get_asn_from_ip(token);
-            if (!asn || strncmp(asn, "AS", 2) != 0) {
-                fprintf(stderr, "ASN lookup failed for IP %s. Trying BGPView fallback...\n", token);
+            char *hackertarget_asn = get_asn_from_ip(token);
+            char asn_to_use[16] = {0};
+
+            if (hackertarget_asn && strncmp(hackertarget_asn, "AS", 2) == 0) {
+                // Case 1: HackerTarget succeeded
+                fprintf(output, "\n--- Lookup for IP: %s ---\n", token);
+                fprintf(output, "Resolved ASN (HackerTarget): %s\n", hackertarget_asn);
+                strncpy(asn_to_use, hackertarget_asn, sizeof(asn_to_use) - 1);
+            } else {
+                // Case 2: HackerTarget failed, use BGPView IP lookup as fallback
+                fprintf(output, "\n--- Lookup for IP: %s (HackerTarget Failed) ---\n", token);
                 int asn_num = fetch_bgpview_info_ip(token, output);
                 if (asn_num > 0) {
-                    char asn_str[16];
-                    snprintf(asn_str, sizeof(asn_str), "AS%d", asn_num);
-                    fetch_bgpview_info(asn_str, output);
-                    fetch_all_prefixes_from_asn(asn_str, output);
+                    snprintf(asn_to_use, sizeof(asn_to_use), "AS%d", asn_num);
+                    fprintf(output, "Resolved ASN (BGPView Fallback): %s\n", asn_to_use);
+                } else {
+                    fprintf(stderr, "Failed to resolve ASN for IP %s via all methods.\n", token);
                 }
-            } else {
-                fprintf(output, "Resolved ASN for IP %s: %s\n", token, asn);
-                fetch_bgpview_info(asn, output);
-                fetch_all_prefixes_from_asn(asn, output);
             }
+
+            // UNIFIED calls for BGPView ASN info and prefixes
+            if (strlen(asn_to_use) > 0) {
+                fetch_bgpview_info(asn_to_use, output);
+                fetch_all_prefixes_from_asn(asn_to_use, output);
+            }
+            
             token = strtok(NULL, ",");
         }
     }
+    // --- End IP processing logic ---
 
+    // --- Start Domain processing logic (FIXED) ---
     if (strlen(domains) > 0) {
         token = strtok(domains, ",");
         while (token != NULL) {
@@ -364,25 +390,36 @@ int main(int argc, char *argv[]) {
             if (!resolved_ip) {
                 fprintf(stderr, "Failed to resolve domain to IP: %s\n", token);
             } else {
-                char *asn = get_asn_from_ip(resolved_ip);
-                if (!asn || strncmp(asn, "AS", 2) != 0) {
-                    fprintf(stderr, "ASN lookup failed for domain %s (IP %s). Trying BGPView fallback...\n", token, resolved_ip);
+                char *hackertarget_asn = get_asn_from_ip(resolved_ip);
+                char asn_to_use[16] = {0};
+
+                if (hackertarget_asn && strncmp(hackertarget_asn, "AS", 2) == 0) {
+                    // Case 1: HackerTarget succeeded
+                    fprintf(output, "\n--- Lookup for Domain: %s (IP: %s) ---\n", token, resolved_ip);
+                    fprintf(output, "Resolved ASN (HackerTarget): %s\n", hackertarget_asn);
+                    strncpy(asn_to_use, hackertarget_asn, sizeof(asn_to_use) - 1);
+                } else {
+                    // Case 2: HackerTarget failed, use BGPView IP lookup as fallback
+                    fprintf(output, "\n--- Lookup for Domain: %s (IP: %s, HackerTarget Failed) ---\n", token, resolved_ip);
                     int asn_num = fetch_bgpview_info_ip(resolved_ip, output);
                     if (asn_num > 0) {
-                        char asn_str[16];
-                        snprintf(asn_str, sizeof(asn_str), "AS%d", asn_num);
-                        fetch_bgpview_info(asn_str, output);
-                        fetch_all_prefixes_from_asn(asn_str, output);
+                        snprintf(asn_to_use, sizeof(asn_to_use), "AS%d", asn_num);
+                        fprintf(output, "Resolved ASN (BGPView Fallback): %s\n", asn_to_use);
+                    } else {
+                         fprintf(stderr, "Failed to resolve ASN for domain %s (IP %s) via all methods.\n", token, resolved_ip);
                     }
-                } else {
-                    fprintf(output, "Resolved ASN for domain %s (IP %s): %s\n", token, resolved_ip, asn);
-                    fetch_bgpview_info(asn, output);
-                    fetch_all_prefixes_from_asn(asn, output);
+                }
+
+                // UNIFIED calls for BGPView ASN info and prefixes
+                if (strlen(asn_to_use) > 0) {
+                    fetch_bgpview_info(asn_to_use, output);
+                    fetch_all_prefixes_from_asn(asn_to_use, output);
                 }
             }
             token = strtok(NULL, ",");
         }
     }
+    // --- End Domain processing logic ---
 
     if (output != stdout) fclose(output);
     cleanup_winsock();
