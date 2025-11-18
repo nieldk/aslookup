@@ -12,6 +12,8 @@
 #define MAX_RETRIES 3
 #define RETRY_WAIT_SECONDS 5
 
+// PROGRAM_VERSION is now defined externally by the compiler in the GitHub Actions workflow
+
 struct MemoryStruct {
     char *memory;
     size_t size;
@@ -420,25 +422,34 @@ char *resolve_domain_to_ip(const char *domain) {
 }
 
 void print_help(const char *progname, FILE *output) {
+    fprintf(output, "aslookup-win version %s\n", PROGRAM_VERSION);
+    fprintf(output, "Simple ASN and IP Prefix Lookup Tool.\n\n");
     fprintf(output, "Usage: %s <options>\n", progname);
     fprintf(output, "Options:\n");
-    fprintf(output, " -i <IP[,IP,...]> Specify one or more IP addresses (comma-separated)\n");
-    fprintf(output, " -d <domain[,domain,...]> Specify one or more domain names (comma-separated)\n");
-    fprintf(output, " -f <file> Save output to a formatted text file\n");
-    fprintf(output, " --help Show this help message\n");
+    fprintf(output, " -i <IP[,IP,...]>       Specify one or more IP addresses (comma-separated).\n");
+    fprintf(output, " -d <domain[,domain,...]> Specify one or more domain names (comma-separated).\n");
+    fprintf(output, " -f <file>              Save output to a formatted text file instead of stdout.\n");
+    fprintf(output, " --help                 Show this help message.\n");
+    fprintf(output, " --version              Show the current tool version.\n\n");
+    fprintf(output, "Note: This tool uses BGPView.io as the primary source for reliable data, \n");
+    fprintf(output, "      including ASN details, owner contacts, and related IP prefixes.\n");
 }
 
 int main(int argc, char *argv[]) {
     init_winsock();
 
-    // MISSING DECLARATIONS RESTORED HERE:
     char ips[1024] = {0};
     char domains[1024] = {0};
     char filename[256] = {0};
     FILE *output = stdout;
 
-    // Argument parsing logic (remains the same)
     for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--version") == 0) {
+            fprintf(stdout, "aslookup-win version %s\n", PROGRAM_VERSION);
+            cleanup_winsock();
+            return 0;
+        }
+
         if (strcmp(argv[i], "--help") == 0) {
             print_help(argv[0], stdout);
             cleanup_winsock();
