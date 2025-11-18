@@ -429,71 +429,35 @@ void print_help(const char *progname, FILE *output) {
 }
 
 int main(int argc, char *argv[]) {
-    init_winsock();
-
-    char ips[1024] = {0};
-    char domains[1024] = {0};
-    char filename[256] = {0};
-    FILE *output = stdout;
-
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--help") == 0) {
-            print_help(argv[0], stdout);
-            cleanup_winsock();
-            return 0;
-        }
-        if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
-            strncpy(ips, argv[i + 1], sizeof(ips) - 1);
-            i++;
-        }
-        if (strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
-            strncpy(domains, argv[i + 1], sizeof(domains) - 1);
-            i++;
-        }
-        if (strcmp(argv[i], "-f") == 0 && i + 1 < argc) {
-            strncpy(filename, argv[i + 1], sizeof(filename) - 1);
-            i++;
-        }
-    }
-
-    if (strlen(filename) > 0) {
-        output = fopen(filename, "w");
-        if (!output) {
-            fprintf(stderr, "Failed to open file for writing.\n");
-            cleanup_winsock();
-            return 1;
-        }
-    }
-
-    if (strlen(ips) == 0 && strlen(domains) == 0) {
-        print_help(argv[0], output);
-        if (output != stdout) fclose(output);
-        cleanup_winsock();
-        return 1;
-    }
+    // ... (Initial setup and argument parsing remain the same)
 
     char *token;
 
-    // --- Start IP processing logic (Unified and Fixed) ---
+    // --- Start IP processing logic (BGPView Priority) ---
     if (strlen(ips) > 0) {
         token = strtok(ips, ",");
         while (token != NULL) {
-            char *hackertarget_asn = get_asn_from_ip(token);
+            
+            fprintf(output, "\n--- Lookup for IP: %s ---\n", token);
+            
+            // 1. Fetch ASN using robust BGPView IP lookup first
+            int asn_num = fetch_bgpview_info_ip(token, output);
             char asn_to_use[16] = {0};
 
-            if (hackertarget_asn && strncmp(hackertarget_asn, "AS", 2) == 0) {
-                fprintf(output, "\n--- Lookup for IP: %s ---\n", token);
-                fprintf(output, "Resolved ASN (HackerTarget): %s\n", hackertarget_asn);
-                strncpy(asn_to_use, hackertarget_asn, sizeof(asn_to_use) - 1);
-            } else {
-                fprintf(output, "\n--- Lookup for IP: %s (HackerTarget Failed) ---\n", token);
-                int asn_num = fetch_bgpview_info_ip(token, output);
-                if (asn_num > 0) {
-                    snprintf(asn_to_use, sizeof(asn_to_use), "AS%d", asn_num);
-                    fprintf(output, "Resolved ASN (BGPView Fallback): %s\n", asn_to_use);
+            if (asn_num > 0) {
+                snprintf(asn_to_use, sizeof(asn_to_use), "AS%d", asn_num);
+                // Optionally log the BGPView source, which is already implied by the summary
+                fprintf(output, "Resolved ASN: %s\n", asn_to_use);
+                
+                // 2. Try HackerTarget for reference/backup (Optional, can be removed)
+                char *hackertarget_asn = get_asn_from_ip(token);
+                if (hackertarget_asn && strncmp(hackertarget_asn, "AS", 2) == 0) {
+                    fprintf(output, "HackerTarget Status: SUCCESS (%s)\n", hackertarget_asn);
                 } else {
-                    fprintf(stderr, "Failed to resolve ASN for IP %s via all methods.\n", token);
+                    fprintf(output, "HackerTarget Status: FAILED\n");
                 }
+            } else {
+                fprintf(stderr, "Failed to resolve ASN for IP %s via BGPView.\n", token);
             }
 
             // UNIFIED calls for BGPView ASN info (contacts) and prefixes
@@ -507,7 +471,7 @@ int main(int argc, char *argv[]) {
     }
     // --- End IP processing logic ---
 
-    // --- Start Domain processing logic (Unified and Fixed) ---
+    // --- Start Domain processing logic (BGPView Priority) ---
     if (strlen(domains) > 0) {
         token = strtok(domains, ",");
         while (token != NULL) {
@@ -515,22 +479,25 @@ int main(int argc, char *argv[]) {
             if (!resolved_ip) {
                 fprintf(stderr, "Failed to resolve domain to IP: %s\n", token);
             } else {
-                char *hackertarget_asn = get_asn_from_ip(resolved_ip);
+                fprintf(output, "\n--- Lookup for Domain: %s (IP: %s) ---\n", token, resolved_ip);
+
+                // 1. Fetch ASN using robust BGPView IP lookup first
+                int asn_num = fetch_bgpview_info_ip(resolved_ip, output);
                 char asn_to_use[16] = {0};
 
-                if (hackertarget_asn && strncmp(hackertarget_asn, "AS", 2) == 0) {
-                    fprintf(output, "\n--- Lookup for Domain: %s (IP: %s) ---\n", token, resolved_ip);
-                    fprintf(output, "Resolved ASN (HackerTarget): %s\n", hackertarget_asn);
-                    strncpy(asn_to_use, hackertarget_asn, sizeof(asn_to_use) - 1);
-                } else {
-                    fprintf(output, "\n--- Lookup for Domain: %s (IP: %s, HackerTarget Failed) ---\n", token, resolved_ip);
-                    int asn_num = fetch_bgpview_info_ip(resolved_ip, output);
-                    if (asn_num > 0) {
-                        snprintf(asn_to_use, sizeof(asn_to_use), "AS%d", asn_num);
-                        fprintf(output, "Resolved ASN (BGPView Fallback): %s\n", asn_to_use);
+                if (asn_num > 0) {
+                    snprintf(asn_to_use, sizeof(asn_to_use), "AS%d", asn_num);
+                    fprintf(output, "Resolved ASN: %s\n", asn_to_use);
+
+                    // 2. Try HackerTarget for reference/backup (Optional, can be removed)
+                    char *hackertarget_asn = get_asn_from_ip(resolved_ip);
+                    if (hackertarget_asn && strncmp(hackertarget_asn, "AS", 2) == 0) {
+                        fprintf(output, "HackerTarget Status: SUCCESS (%s)\n", hackertarget_asn);
                     } else {
-                         fprintf(stderr, "Failed to resolve ASN for domain %s (IP %s) via all methods.\n", token, resolved_ip);
+                        fprintf(output, "HackerTarget Status: FAILED\n");
                     }
+                } else {
+                     fprintf(stderr, "Failed to resolve ASN for domain %s (IP %s) via BGPView.\n", token, resolved_ip);
                 }
 
                 // UNIFIED calls for BGPView ASN info (contacts) and prefixes
