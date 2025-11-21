@@ -20,7 +20,7 @@ jobs:
         run: echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
 
       - name: Patch PKGBUILD version
-        run: sed -i "s/^pkgver=.*/pkgver=${RELEASE_VERSION}/" PKGBUILD
+        run: sed -i "s|^pkgver=.*|pkgver=${RELEASE_VERSION}|" PKGBUILD
 
       - name: Build Arch package in Docker
         env:
