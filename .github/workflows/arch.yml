@@ -23,6 +23,8 @@ jobs:
         run: sed -i "s/^pkgver=.*/pkgver=${RELEASE_VERSION}/" PKGBUILD
 
       - name: Build Arch package in Docker
+        env:
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
         run: |
           docker run --rm -v $PWD:/build -w /build -e RELEASE_VERSION=${RELEASE_VERSION} archlinux:latest bash -c "
             pacman -Syu --noconfirm base-devel gcc curl cjson &&
@@ -30,8 +32,6 @@ jobs:
             chown -R builder:builder /build &&
             su builder -c 'cd /build && makepkg -fs --noconfirm'
           "
-        env:
-          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
 
       - name: Find built package
         id: findpkg
@@ -43,3 +43,4 @@ jobs:
         with:
           files: ${{ env.PKGFILE }}
         env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
