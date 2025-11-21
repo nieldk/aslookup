@@ -19,6 +19,9 @@ jobs:
       - name: Set version from tag
         run: echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
 
+      - name: Patch PKGBUILD version
+        run: sed -i "s/^pkgver=.*/pkgver=${RELEASE_VERSION}/" PKGBUILD
+
       - name: Build Arch package in Docker
         run: |
           docker run --rm -v $PWD:/build -w /build -e RELEASE_VERSION=${RELEASE_VERSION} archlinux:latest bash -c "
@@ -40,4 +43,3 @@ jobs:
         with:
           files: ${{ env.PKGFILE }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
