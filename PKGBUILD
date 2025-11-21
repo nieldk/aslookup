@@ -11,7 +11,7 @@ source=("$pkgname.c")
 sha256sums=('SKIP')
 
 build() {
-  gcc $pkgname.c -o $pkgname -lcurl -lcjson -lresolv
+  gcc $pkgname.c -o $pkgname -lcurl -lcjson -lresolv -DVERSION="\"${RELEASE_VERSION:-$pkgver}\""
 }
 
 package() {
