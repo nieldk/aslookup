@@ -23,8 +23,8 @@ jobs:
       - name: Set version from tag
         run: echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
 
-      - name: Build binary
-        run: gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv
+      - name:  Build binary with version
+        run: gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -DVERSION="\"$RELEASE_VERSION\""
 
       - name: Prepare .deb package structure
         run: |
