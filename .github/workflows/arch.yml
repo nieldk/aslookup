@@ -17,23 +17,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set version from tag
+        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
 
       - name: Build Arch package in Docker
         run: |
-         docker run --rm -v $PWD:/build -w /build -e RELEASE_VERSION=${RELEASE_VERSION} archlinux:latest bash -c "
-         pacman -Syu --noconfirm base-devel gcc curl cjson &&
-         useradd -m builder &&
-         chown -R builder:builder /build &&
-         su builder -c 'cd /build && makepkg -fs --noconfirm'
-         "
-
-      env:
-        RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+          docker run --rm -v $PWD:/build -w /build -e RELEASE_VERSION=${RELEASE_VERSION} archlinux:latest bash -c "
+            pacman -Syu --noconfirm base-devel gcc curl cjson &&
+            useradd -m builder &&
+            chown -R builder:builder /build &&
+            su builder -c 'cd /build && makepkg -fs --noconfirm'
+          "
+        env:
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
 
       - name: Find built package
         id: findpkg
-        run: |
-          echo "PKGFILE=$(ls *.pkg.tar.zst | head -n1)" >> $GITHUB_ENV
+        run: echo "PKGFILE=$(ls *.pkg.tar.zst | head -n1)" >> $GITHUB_ENV
 
       - name: Upload Arch package to release
         uses: softprops/action-gh-release@v2
@@ -42,4 +41,3 @@ jobs:
           files: ${{ env.PKGFILE }}
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-
