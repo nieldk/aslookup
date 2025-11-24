@@ -25,26 +25,26 @@ jobs:
         run: |
           TAG_NAME="${CI_COMMIT_TAG:-${CI_COMMIT_REF_NAME}}"
           TAG_NAME="${TAG_NAME#v}"
-          # FIX: Store the calculated version in a temporary file for reliable access
-          echo "$TAG_NAME" > .release_version 
+          # Store the calculated version in a temporary file (no extra characters/newlines)
+          echo -n "$TAG_NAME" > .release_version 
 
       - name: "Build binary"
         run: |
-          # Retrieve the version from the file
-          RELEASE_VERSION=$(cat .release_version)
+          # Retrieve the version from the file and trim any whitespace/newlines
+          RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
           gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -DVERSION=\"\\\"$RELEASE_VERSION\\\"\"
 
       - name: "Prepare .deb package"
         run: |
-          # Retrieve the version from the file
-          RELEASE_VERSION=$(cat .release_version)
+          # Retrieve the version from the file and trim any whitespace/newlines
+          RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
 
           mkdir -p pkg/usr/local/bin
           cp aslookup pkg/usr/local/bin/
           mkdir -p pkg/DEBIAN
           cat <<EOF > pkg/DEBIAN/control
           Package: aslookup
-          Version: $RELEASE_VERSION # $RELEASE_VERSION is now guaranteed to be set
+          Version: $RELEASE_VERSION
           Section: utils
           Priority: optional
           Architecture: amd64
@@ -55,8 +55,8 @@ jobs:
 
       - name: "Upload Ubuntu .deb"
         run: |
-          # Retrieve the version from the file
-          RELEASE_VERSION=$(cat .release_version)
+          # Retrieve the version from the file and trim any whitespace/newlines
+          RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
           
           RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" \
             "https://codeberg.org/api/v1/repos/$CI_REPO_OWNER/$CI_REPO_NAME/releases" \
