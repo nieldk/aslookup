@@ -13,7 +13,8 @@ jobs:
     steps:
       - name: "Checkout code"
         run: |
-          TAG_OR_MAIN="${CI_COMMIT_TAG:-main}"
+          # Use Gitea CI variables for the branch/tag name
+          TAG_OR_MAIN="${CI_TAG:-${CI_COMMIT_REF:-main}}"
           git clone --depth 1 --branch "$TAG_OR_MAIN" https://codeberg.org/nieldk/aslookup.git .
 
       - name: "Install dependencies"
@@ -21,42 +22,34 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev dpkg-dev jq curl
 
-      - name: "Set version (DEBUG)"
+      - name: "Set version"
         run: |
-          TAG_NAME="${CI_COMMIT_TAG:-${CI_COMMIT_REF_NAME}}"
+          # FIX: Use Gitea CI variables CI_TAG or CI_COMMIT_REF
+          TAG_NAME="${CI_TAG:-${CI_COMMIT_REF}}"
+          
+          # Fallback to CI_COMMIT_REF_NAME for robustness, though it failed earlier
+          if [ -z "$TAG_NAME" ]; then
+            TAG_NAME="${CI_COMMIT_REF_NAME}"
+          fi
+
+          # Strip leading 'v'
           TAG_NAME="${TAG_NAME#v}"
           
-          # --- DEBUG OUTPUT START ---
-          echo "DEBUG: CI_COMMIT_TAG is '$CI_COMMIT_TAG'"
-          echo "DEBUG: CI_COMMIT_REF_NAME is '$CI_COMMIT_REF_NAME'"
-          echo "DEBUG: Calculated TAG_NAME is '$TAG_NAME'"
-          # --- DEBUG OUTPUT END ---
-
-          # Store the calculated version in a temporary file
+          # Store the calculated version in a temporary file (no extra characters/newlines)
           echo -n "$TAG_NAME" > .release_version 
 
       - name: "Build binary"
         run: |
           # Retrieve the version from the file and trim any whitespace/newlines
           RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
-          
-          echo "DEBUG: Build binary RELEASE_VERSION is '$RELEASE_VERSION'" # DEBUG
-
           gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -DVERSION=\"\\\"$RELEASE_VERSION\\\"\"
 
-      - name: "Prepare .deb package (DEBUG)"
+      - name: "Prepare .deb package"
         run: |
           # Retrieve the version from the file and trim any whitespace/newlines
           RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
           
-          # --- DEBUG OUTPUT START ---
-          echo "DEBUG: Prepare package RELEASE_VERSION is '$RELEASE_VERSION'"
-          if [ -z "$RELEASE_VERSION" ]; then
-            echo "::error::The RELEASE_VERSION variable is empty! Aborting build for inspection."
-            exit 1
-          fi
-          # --- DEBUG OUTPUT END ---
-          
+          # Use the version variable, which is now guaranteed to be set if CI variables were present
           mkdir -p pkg/usr/local/bin
           cp aslookup pkg/usr/local/bin/
           mkdir -p pkg/DEBIAN
@@ -76,15 +69,18 @@ jobs:
           # Retrieve the version from the file and trim any whitespace/newlines
           RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
           
+          # Use CI_TAG here for the API call to find the release
+          RELEASE_TAG="${CI_TAG:-${CI_COMMIT_TAG}}"
+
           RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" \
             "https://codeberg.org/api/v1/repos/$CI_REPO_OWNER/$CI_REPO_NAME/releases" \
-            | jq -r ".[] | select(.tag_name==\"$CI_COMMIT_TAG\") | .id")
+            | jq -r ".[] | select(.tag_name==\"$RELEASE_TAG\") | .id")
 
           if [ -z "$RELEASE_ID" ]; then
             RELEASE_ID=$(curl -s -X POST \
               -H "Authorization: token $CODEBERG_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"tag_name\":\"$CI_COMMIT_TAG\",\"name\":\"Release $CI_COMMIT_TAG\"}" \
+              -d "{\"tag_name\":\"$RELEASE_TAG\",\"name\":\"Release $RELEASE_TAG\"}" \
               "https://codeberg.org/api/v1/repos/$CI_REPO_OWNER/$CI_REPO_NAME/releases" \
               | jq -r .id)
           fi
