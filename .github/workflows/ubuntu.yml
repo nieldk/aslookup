@@ -14,8 +14,8 @@ jobs:
         run: |
           # Clone the full repository history
           git clone https://codeberg.org/nieldk/aslookup.git .
-          # FIX 1: Checkout the specific commit that triggered the build.
-          # We must assume the Gitea/Forgejo variable CI_COMMIT_SHA is set.
+          # Checkout the specific commit that triggered the build.
+          # We assume the Gitea/Forgejo variable CI_COMMIT_SHA is set.
           git checkout "$CI_COMMIT_SHA" || true
 
       - name: "Install dependencies"
@@ -25,8 +25,7 @@ jobs:
 
       - name: "Set version"
         run: |
-          # FIX 2: Get the version directly from Git using 'git describe'
-          # If on a tag, this returns the tag name (e.g., v1.0.0).
+          # Get the version directly from Git using 'git describe'
           TAG_NAME=$(git describe --tags --abbrev=0 2>/dev/null)
 
           # Fallback: If no tag is found, use a short commit hash for a version
@@ -37,7 +36,6 @@ jobs:
           # Strip leading 'v'
           RELEASE_VERSION="${TAG_NAME#v}"
           
-          # Debug: Will show the exact version being used (e.g., 1.0.0 or c837d)
           echo "DEBUG: Final calculated RELEASE_VERSION via git is '$RELEASE_VERSION'"
           
           # Store the calculated version in a temporary file
@@ -54,7 +52,6 @@ jobs:
           # Retrieve the version from the file and trim any whitespace/newlines
           RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
           
-          # $RELEASE_VERSION is now populated from the local Git repo metadata
           mkdir -p pkg/usr/local/bin
           cp aslookup pkg/usr/local/bin/
           mkdir -p pkg/DEBIAN
@@ -71,27 +68,47 @@ jobs:
 
       - name: "Upload Ubuntu .deb"
         run: |
-          # Retrieve the version from the file and trim any whitespace/newlines
+          # Retrieve the version from the file
           RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
           
-          # Use CI_COMMIT_TAG as the reference for the release tag, with a fallback
-          RELEASE_TAG="${CI_COMMIT_TAG:-v$RELEASE_VERSION}"
+          # Define Gitea/Forgejo variables locally for the shell environment
+          # Fallback to CI_COMMIT_TAG if CI_TAG is missing for the tag name
+          RELEASE_TAG="${CI_TAG:-${CI_COMMIT_TAG}}"
+          
+          REPO_OWNER="${CI_REPO_OWNER}"
+          REPO_NAME="${CI_REPO_NAME}"
 
+          # Fix: Use the curl output and pipe it through 'jq -r "if type==\"array\" then ... else empty end"'
+          # This safely handles non-JSON (like 404 text) by ignoring it.
           RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" \
-            "https://codeberg.org/api/v1/repos/$CI_REPO_OWNER/$CI_REPO_NAME/releases" \
-            | jq -r ".[] | select(.tag_name==\"$RELEASE_TAG\") | .id")
+            "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" \
+            | jq -r "if type==\"array\" then .[] | select(.tag_name==\"$RELEASE_TAG\") | .id else empty end")
 
           if [ -z "$RELEASE_ID" ]; then
-            RELEASE_ID=$(curl -s -X POST \
+            echo "Release tag '$RELEASE_TAG' not found, creating new release..."
+            
+            # Use 'tee' to capture the output while also displaying it (for debug)
+            API_RESPONSE=$(curl -s -X POST \
               -H "Authorization: token $CODEBERG_TOKEN" \
               -H "Content-Type: application/json" \
               -d "{\"tag_name\":\"$RELEASE_TAG\",\"name\":\"Release $RELEASE_TAG\"}" \
-              "https://codeberg.org/api/v1/repos/$CI_REPO_OWNER/$CI_REPO_NAME/releases" \
-              | jq -r .id)
-          fi
+              "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" | tee /dev/stderr)
+              
+            # Extract the ID from the (hopefully) successful JSON response
+            RELEASE_ID=$(echo "$API_RESPONSE" | jq -r .id)
 
+            if [ "$RELEASE_ID" == "null" ] || [ -z "$RELEASE_ID" ]; then
+                echo "::error::Failed to create release. Check the API response above for errors."
+                exit 1
+            fi
+            echo "Created new release with ID: $RELEASE_ID"
+          else
+            echo "Existing release found with ID: $RELEASE_ID"
+          fi
+          
+          # Upload the built .deb package
           curl -s -X POST \
             -H "Authorization: token $CODEBERG_TOKEN" \
             -H "Content-Type: application/octet-stream" \
-            --data-binary "@pkg.deb" \
-            "https://codeberg.org/api/v1/repos/$CI_REPO_OWNER/$CI_REPO_NAME/releases/$RELEASE_ID/assets?name=aslookup-$RELEASE_VERSION-ubuntu-amd64.deb"
+            --data-binary "@pkg/pkg.deb" \
+            "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=aslookup-$RELEASE_VERSION-ubuntu-amd64.deb"
