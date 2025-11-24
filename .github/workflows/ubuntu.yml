@@ -22,7 +22,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev dpkg-dev jq curl
 
-      - name: "Set version"
+      - name: "Set version (Git-based)"
         run: |
           # Get the version directly from Git using 'git describe'
           TAG_NAME=$(git describe --tags --abbrev=0 2>/dev/null)
@@ -63,16 +63,15 @@ jobs:
           Maintainer: Niel Nielsen <nieldk@gmail.com>
           Description: ASN lookup utility
           EOF
-          # dpkg-deb creates pkg.deb in the current directory
           dpkg-deb --build pkg
 
       - name: "Upload Ubuntu .deb (Final Attempt)"
         run: |
           # --- Extract REPO OWNER/NAME from git remote URL ---
           GIT_URL=$(git remote get-url origin)
-          REPO_SLUG=$(echo $GIT_URL | sed -E 's/.*codeberg\.org[:/]([^\/]+\/[^.]+)(\.git)?$/\1/')
-          REPO_OWNER=$(echo $REPO_SLUG | cut -d/ -f1)
-          REPO_NAME=$(echo $REPO_SLUG | cut -d/ -f2)
+          REPO_SLUG=$(echo "$GIT_URL" | sed -E 's/.*codeberg\.org[:/]([^\/]+\/[^.]+)(\.git)?$/\1/')
+          REPO_OWNER=$(echo "$REPO_SLUG" | cut -d/ -f1)
+          REPO_NAME=$(echo "$REPO_SLUG" | cut -d/ -f2)
           # --------------------------------------------------------
           
           # Retrieve the version from the file
@@ -85,7 +84,7 @@ jobs:
           fi
 
           # FIX: Explicitly set the authorization header variable
-          AUTH_HEADER="Authorization: token $CODEBERG_TOKEN"
+          AUTH_HEADER="Authorization: token ${CODEBERG_TOKEN}"
 
           echo "DEBUG: Using API URL variables: Owner='$REPO_OWNER', Name='$REPO_NAME', Tag='$RELEASE_TAG'"
 
@@ -109,10 +108,12 @@ jobs:
           fi
           
           echo "Attempting to upload file 'pkg.deb' to release ID $RELEASE_ID..."
-          # FIX: Use AUTH_HEADER variable and correct Content-Type. Keep -v for debugging.
-          curl -v -X POST \
-            -H "$AUTH_HEADER" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary "@pkg.deb" \
-            "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=aslookup-$RELEASE_VERSION-ubuntu-amd64.deb"
+          
+          # FIX: Final curl command written on a single line for maximum robustness against shell parsing issues
+          # We use the pre-defined $AUTH_HEADER variable.
+          ASSET_NAME="aslookup-$RELEASE_VERSION-ubuntu-amd64.deb"
+          UPLOAD_URL="https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$ASSET_NAME"
+          
+          curl -v -X POST -H "$AUTH_HEADER" -H "Content-Type: application/octet-stream" --data-binary "@pkg.deb" "$UPLOAD_URL"
+          
           echo "Upload attempt finished. Look for 201 Created status code above."
