@@ -9,7 +9,7 @@ jobs:
   # ---------------- Ubuntu (.deb) ----------------
   build-ubuntu:
     # Changed to an available runner label
-    runs-on: medium
+    runs-on: tiny@actions-tiny.aburayama.m.codeberg.org
     steps:
       - name: "Checkout code"
         run: |
