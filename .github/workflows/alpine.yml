@@ -1,53 +1,50 @@
 
-name: Alpine Build and APK Release (Codeberg)
+name: "Alpine Build and APK Release (Codeberg)"
 
 on:
   push:
     tags:
-      - '*'
+      - "*"
 
 jobs:
   build:
     runs-on: docker
-    container: alpine:latest
+
+    container:
+      image: alpine:latest
 
     steps:
-      - name: Checkout code
+      - name: "Checkout code"
         uses: codeberg-actions/checkout@v3
 
-      - name: Install Build Dependencies 🛠️
+      - name: "Install Build Dependencies 🛠️"
         run: |
           apk update
-          apk add --no-cache build-base curl-dev git cmake tar
+          apk add --no-cache build-base curl-dev git cmake tar jq
 
-      # --- Build cJSON ---
-      - name: Clone cJSON
+      - name: "Clone cJSON"
         run: git clone https://github.com/DaveGamble/cJSON.git /tmp/cJSON
 
-      - name: Build and Install cJSON
+      - name: "Build and Install cJSON"
         run: |
           cd /tmp/cJSON
           mkdir build && cd build
           cmake -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=ON ..
           make && make install
 
-      # --- Set version from tag ---
-      - name: Set version
+      - name: "Set version"
         run: echo "RELEASE_VERSION=${CI_COMMIT_TAG#v}" >> $GITHUB_ENV
 
-      # --- Build binary ---
-      - name: Build aslookup binary
+      - name: "Build aslookup binary"
         run: gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -DVERSION="\"$RELEASE_VERSION\""
 
-      # --- Prepare APK-like package ---
-      - name: Prepare package
+      - name: "Prepare package"
         run: |
           mkdir -p pkg/usr/local/bin
           cp aslookup pkg/usr/local/bin/
           mkdir -p pkg/usr/lib
           cp /usr/lib/libcjson.so.1 pkg/usr/lib/
 
-          # Metadata
           echo "pkgname = aslookup" > pkg/.PKGINFO
           echo "pkgver = $RELEASE_VERSION" >> pkg/.PKGINFO
           echo "maintainer = Niel Nielsen <nieldk@gmail.com>" >> pkg/.PKGINFO
@@ -61,8 +58,7 @@ jobs:
           tar -czf control.tar.gz .PKGINFO
           tar -czf aslookup_${RELEASE_VERSION}_x86_64.apk control.tar.gz data.tar.gz
 
-      # --- Upload to Codeberg Release ---
-      - name: Upload APK to Codeberg Release
+      - name: "Upload APK to Codeberg Release"
         run: |
           RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" \
             "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
@@ -75,11 +71,3 @@ jobs:
               -H "Content-Type: application/json" \
               -d "{\"tag_name\":\"${CI_COMMIT_TAG}\",\"name\":\"Release ${CI_COMMIT_TAG}\"}" \
               "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
-              | jq -r ".id")
-          fi
-
-          echo "Uploading APK..."
-          curl -X POST \
-            -H "Authorization: token $CODEBERG_TOKEN" \
-            -F "attachment=@pkg/aslookup_${RELEASE_VERSION}_x86_64.apk" \
-            "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases/${RELEASE_ID}/assets"
