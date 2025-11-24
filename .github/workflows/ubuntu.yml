@@ -122,8 +122,8 @@ jobs:
         run: |
           # Ensure a fresh update before attempting to install zstd
           sudo apt-get update
-          # Install core build and utility tools, including zstd
-          sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev jq curl tar zstd
+          # Install core build and utility tools, including zstd and sha256sum
+          sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev jq curl tar zstd coreutils
           
           # Verification check: If zstd still isn't installed, fail early.
           if ! command -v zstd &> /dev/null; then
@@ -157,13 +157,13 @@ jobs:
           PKG_DIR="pkg-arch"
           mkdir -p "$PKG_DIR/usr/bin"
           
-          # 3. Install the binary
+          # 3. Install the binary and set permissions
           echo "Installing binary to $PKG_DIR/usr/bin/..."
           cp aslookup "$PKG_DIR/usr/bin/aslookup"
+          chmod 755 "$PKG_DIR/usr/bin/aslookup" # Set executable permission
           
           # 4. Create the Arch package metadata file (.PKGINFO)
           echo "Creating .PKGINFO..."
-          # The package version in Arch often includes the pkgrel (e.g., 1.4.1-1)
           PKG_VER_REL="$RELEASE_VERSION-1" 
           cat <<EOF > "$PKG_DIR/.PKGINFO"
           # Generated manually for Arch package
@@ -180,7 +180,24 @@ jobs:
           depend = cjson
           EOF
           
-          # 5. Create the .tar.zst package using tar and zstd via pipe
+          # 5. Create the .MTREE file (Crucial metadata for pacman integrity check)
+          echo "Creating .MTREE..."
+          # Calculate necessary hashes for .MTREE generation
+          BIN_SHA256=$(sha256sum "$PKG_DIR/usr/bin/aslookup" | awk '{print $1}')
+          INFO_SIZE=$(du -sb "$PKG_DIR/.PKGINFO" | awk '{print $1}')
+          INFO_SHA256=$(sha256sum "$PKG_DIR/.PKGINFO" | awk '{print $1}')
+          BIN_SIZE=$(du -sb "$PKG_DIR/usr/bin/aslookup" | awk '{print $1}')
+
+          cat <<EOF > "$PKG_DIR/.MTREE"
+          #mtree
+          . type=dir mode=0755
+          ./usr type=dir mode=0755
+          ./usr/bin type=dir mode=0755
+          ./usr/bin/aslookup type=file mode=0755 size=$BIN_SIZE sha256=$BIN_SHA256
+          ./.PKGINFO type=file mode=0644 size=$INFO_SIZE sha256=$INFO_SHA256
+          EOF
+
+          # 6. Create the .tar.zst package using tar and zstd via pipe
           PKG_FILENAME="aslookup-$PKG_VER_REL-x86_64.pkg.tar.zst"
           echo "Creating final package $PKG_FILENAME using tar and zstd pipe..."
           
@@ -201,10 +218,8 @@ jobs:
           REPO_OWNER=$(echo "$REPO_SLUG" | cut -d/ -f1)
           REPO_NAME=$(echo "$REPO_SLUG" | cut -d/ -f2)
           
-          # FIX: Line 235 failed. Removed the unreliable file read and assign the 
-          # RELEASE_VERSION from the environment variable set in a previous step.
-          # RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
-          RELEASE_VERSION="$RELEASE_VERSION" # Line 239
+          # Release version retrieved from the environment variable set in a previous step.
+          RELEASE_VERSION="$RELEASE_VERSION"
 
           RELEASE_TAG="${CI_TAG:-${CI_COMMIT_TAG}}"
           if [ -z "$RELEASE_TAG" ]; then
@@ -212,7 +227,7 @@ jobs:
           fi
           AUTH_HEADER="Authorization: token ${AUTH_TOKEN}"
           
-          # FIX: PKG_FILE_PATH is now retrieved from the exported environment variable PKG_FILE (line 247)
+          # Package file path retrieved from the exported environment variable PKG_FILE
           PKG_FILE_PATH="$PKG_FILE" 
           # --------------------------------------------------------------------------
 
