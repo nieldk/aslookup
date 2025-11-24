@@ -119,9 +119,9 @@ jobs:
           
       - name: "Install dependencies (Ubuntu tools for Arch packaging)"
         run: |
-          # Install bsdtar (for creating tar archives) and zstd (for compression)
+          # FIX: Removed 'bsdtar'. The default 'tar' and 'zstd' are sufficient.
           sudo apt-get update
-          sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev jq curl bsdtar zstd
+          sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev jq curl zstd
 
       - name: "Set version (Git-based)"
         id: set_version_arch
@@ -155,10 +155,12 @@ jobs:
           
           # 4. Create the Arch package metadata file (.PKGINFO)
           echo "Creating .PKGINFO..."
+          # The package version in Arch often includes the pkgrel (e.g., 1.4.1-1)
+          PKG_VER_REL="$RELEASE_VERSION-1" 
           cat <<EOF > "$PKG_DIR/.PKGINFO"
           # Generated manually for Arch package
           pkgname = aslookup
-          pkgver = $RELEASE_VERSION-1
+          pkgver = $PKG_VER_REL
           pkgdesc = ASN lookup utility
           url = https://codeberg.org/nieldk/aslookup
           builddate = $(date +%s)
@@ -170,14 +172,20 @@ jobs:
           depend = cjson
           EOF
           
-          # 5. Create the .tar.zst package using bsdtar and zstd
-          PKG_FILENAME="aslookup-$RELEASE_VERSION-1-x86_64.pkg.tar.zst"
-          echo "Creating final package $PKG_FILENAME..."
+          # 5. Create the .tar.zst package using tar and zstd
+          PKG_FILENAME="aslookup-$PKG_VER_REL-x86_64.pkg.tar.zst"
+          TAR_FILENAME="aslookup-$PKG_VER_REL-x86_64.pkg.tar"
+          echo "Creating temporary .tar file $TAR_FILENAME..."
           
-          # The key to Arch packaging: tar the contents of the package directory, then compress with zstd.
-          # We use bsdtar since the Ubuntu/Debian 'tar' might not support the exact options.
-          (cd "$PKG_DIR" && bsdtar -czf ../"$PKG_FILENAME" --format=ustar .)
-          zstd -q -f -o "$PKG_FILENAME" "$PKG_FILENAME"
+          # Create the uncompressed tar archive using standard 'tar' command
+          (cd "$PKG_DIR" && tar -cf "../$TAR_FILENAME" .)
+          
+          # Compress the tar file into the final .zst format
+          echo "Compressing $TAR_FILENAME to $PKG_FILENAME..."
+          zstd -q -f -o "$PKG_FILENAME" "$TAR_FILENAME"
+          
+          # Clean up the temporary tar file
+          rm "$TAR_FILENAME"
           
           # Store the filename for the next step
           echo "PKG_FILE=$PKG_FILENAME" >> $GITHUB_ENV
@@ -206,9 +214,8 @@ jobs:
           RELEASE_ID=$(curl -s -H "$AUTH_HEADER" "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" | jq -r "if type==\"array\" then .[] | select(.tag_name==\"$RELEASE_TAG\") | .id else empty end")
 
           if [ -z "$RELEASE_ID" ]; then
-              # Since the Ubuntu job should have created it, let's assume a brief wait might be needed
-              # Or rely on the Ubuntu job running first (which is the default behavior if not explicitly ordered).
-              echo "::error::Release ID not found. Assuming release creation failed or did not occur."
+              # This failure path should ideally not be hit since the Ubuntu job runs first.
+              echo "::error::Release ID not found. Check if the 'build-ubuntu' job succeeded."
               exit 1
           fi
           echo "Existing release found with ID: $RELEASE_ID"
