@@ -22,28 +22,29 @@ jobs:
           sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev dpkg-dev jq curl
 
       - name: "Set version"
-        id: set_version # <-- FIX 1: Add ID to reference output
         run: |
           TAG_NAME="${CI_COMMIT_TAG:-${CI_COMMIT_REF_NAME}}"
           TAG_NAME="${TAG_NAME#v}"
-          # FIX 1: Write to GITHUB_OUTPUT instead of GITHUB_ENV
-          echo "RELEASE_VERSION=$TAG_NAME" >> $GITHUB_OUTPUT 
+          # FIX: Store the calculated version in a temporary file for reliable access
+          echo "$TAG_NAME" > .release_version 
 
       - name: "Build binary"
-        env: # <-- FIX 2: Inject variable from output
-          RELEASE_VERSION: ${{ steps.set_version.outputs.RELEASE_VERSION }}
-        run: gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -DVERSION=\"\\\"$RELEASE_VERSION\\\"\"
+        run: |
+          # Retrieve the version from the file
+          RELEASE_VERSION=$(cat .release_version)
+          gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -DVERSION=\"\\\"$RELEASE_VERSION\\\"\"
 
       - name: "Prepare .deb package"
-        env: # <-- FIX 3: Inject variable from output
-          RELEASE_VERSION: ${{ steps.set_version.outputs.RELEASE_VERSION }}
         run: |
+          # Retrieve the version from the file
+          RELEASE_VERSION=$(cat .release_version)
+
           mkdir -p pkg/usr/local/bin
           cp aslookup pkg/usr/local/bin/
           mkdir -p pkg/DEBIAN
           cat <<EOF > pkg/DEBIAN/control
           Package: aslookup
-          Version: $RELEASE_VERSION
+          Version: $RELEASE_VERSION # $RELEASE_VERSION is now guaranteed to be set
           Section: utils
           Priority: optional
           Architecture: amd64
@@ -53,9 +54,10 @@ jobs:
           dpkg-deb --build pkg
 
       - name: "Upload Ubuntu .deb"
-        env: # Inject variable for use in the asset upload URL
-          RELEASE_VERSION: ${{ steps.set_version.outputs.RELEASE_VERSION }}
         run: |
+          # Retrieve the version from the file
+          RELEASE_VERSION=$(cat .release_version)
+          
           RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" \
             "https://codeberg.org/api/v1/repos/$CI_REPO_OWNER/$CI_REPO_NAME/releases" \
             | jq -r ".[] | select(.tag_name==\"$CI_COMMIT_TAG\") | .id")
