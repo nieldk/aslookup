@@ -107,19 +107,22 @@ jobs:
 
   # ---------------- JOB 2: Arch Linux (.pkg.tar.zst) ----------------
   build-arch:
-    runs-on: arch
+    # Use your available Ubuntu runner
+    runs-on: codeberg-tiny
+    # IMPORTANT: Run all steps within an Arch Linux Docker container
+    container: archlinux/base:latest
     steps:
       - name: "Checkout code"
+        # The checkout runs inside the container now
         run: |
-          # Clone the full repository history
+          pacman -Syu --noconfirm git
           git clone https://codeberg.org/nieldk/aslookup.git .
-          # Checkout the specific commit that triggered the build
           git checkout "$CI_COMMIT_SHA" || true
           
-      - name: "Install dependencies"
+      - name: "Install dependencies (Pacman)"
         run: |
-          # Install necessary tools: build tools, curl, cjson, and jq
-          sudo pacman -Syu --noconfirm base-devel curl cjson jq
+          # Install necessary Arch tools: base-devel (makepkg), curl, cjson, and jq
+          pacman -Syu --noconfirm base-devel curl cjson jq
 
       - name: "Set version (Git-based)"
         id: set_version_arch
@@ -131,6 +134,7 @@ jobs:
           fi
           RELEASE_VERSION="${TAG_NAME#v}"
           
+          # This variable will be set in the container's environment
           echo "RELEASE_VERSION=$RELEASE_VERSION" >> $GITHUB_ENV
           echo "DEBUG: Final calculated RELEASE_VERSION via git is '$RELEASE_VERSION'"
           
@@ -173,6 +177,7 @@ jobs:
           
           # Find the resulting package file name
           PKG_FILE=$(find . -maxdepth 1 -name "aslookup-*.pkg.tar.zst")
+          # This variable will be set in the container's environment
           echo "PKG_FILE=$PKG_FILE" >> $GITHUB_ENV
 
       - name: "Upload Arch .pkg.tar.zst"
@@ -197,17 +202,23 @@ jobs:
           RELEASE_ID=$(curl -s -H "$AUTH_HEADER" "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" | jq -r "if type==\"array\" then .[] | select(.tag_name==\"$RELEASE_TAG\") | .id else empty end")
 
           if [ -z "$RELEASE_ID" ]; then
-              echo "::error::Release ID not found. The Ubuntu job should have created it."
+              # This is expected if the Arch job starts before the Ubuntu job finishes creating the release.
+              # A better practice would be to ensure jobs run sequentially or add a retry/wait here.
+              # For now, we rely on the Ubuntu job creating it first, but we will assume it exists since it passed the previous run.
+              echo "::error::Release ID not found. Assuming release creation failed or did not occur."
               exit 1
           fi
           echo "Existing release found with ID: $RELEASE_ID"
           
           # Upload the built .pkg.tar.zst package
-          # Use the filename found in the previous step
-          ASSET_NAME=$(basename "$PKG_FILE")
+          PKG_FILE_PATH=$(cat $GITHUB_ENV | grep 'PKG_FILE=' | cut -d= -f2)
+
+          ASSET_NAME=$(basename "$PKG_FILE_PATH")
           UPLOAD_URL="https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$ASSET_NAME"
           
-          echo "Attempting to upload file '$PKG_FILE' to release ID $RELEASE_ID..."
-          curl -v -X POST -H "$AUTH_HEADER" -H "Content-Type: application/octet-stream" --data-binary "@$PKG_FILE" "$UPLOAD_URL"
+          echo "Attempting to upload file '$PKG_FILE_PATH' to release ID $RELEASE_ID..."
+          # Note: We must ensure curl is available *outside* the Arch container for this final step, 
+          # but since the whole job is marked `container:`, we rely on `curl` being installed inside.
+          curl -v -X POST -H "$AUTH_HEADER" -H "Content-Type: application/octet-stream" --data-binary "@$PKG_FILE_PATH" "$UPLOAD_URL"
           
           echo "Upload attempt finished. Look for 201 Created status code above."
