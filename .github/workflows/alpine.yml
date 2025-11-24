@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: runs-on: codeberg-tiny
+    runs-on: codeberg-tiny
     container:
       image: alpine:latest
 
