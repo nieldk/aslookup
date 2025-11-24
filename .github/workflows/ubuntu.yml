@@ -86,12 +86,25 @@ jobs:
           echo "DEBUG: Using API URL variables: Owner='$REPO_OWNER', Name='$REPO_NAME', Tag='$RELEASE_TAG'"
 
           # Check for existing release (safely handles non-JSON/404 responses)
-          RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" \
-            "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" \
-            | jq -r "if type==\"array\" then .[] | select(.tag_name==\"$RELEASE_TAG\") | .id else empty end")
+          RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" | jq -r "if type==\"array\" then .[] | select(.tag_name==\"$RELEASE_TAG\") | .id else empty end")
 
           if [ -z "$RELEASE_ID" ]; then
             echo "Release tag '$RELEASE_TAG' not found, creating new release..."
             
-            API_RESPONSE=$(curl -s -X POST \
-              -H "Authorization: token $CODEBERG_TOKEN
+            # Use 'tee' to capture the output while also displaying it (for debug)
+            API_RESPONSE=$(curl -s -X POST -H "Authorization: token $CODEBERG_TOKEN" -H "Content-Type: application/json" -d "{\"tag_name\":\"$RELEASE_TAG\",\"name\":\"Release $RELEASE_TAG\"}" "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" | tee /dev/stderr)
+              
+            RELEASE_ID=$(echo "$API_RESPONSE" | jq -r .id)
+
+            if [ "$RELEASE_ID" == "null" ] || [ -z "$RELEASE_ID" ]; then
+                echo "::error::Failed to create release."
+                exit 1
+            fi
+            echo "Created new release with ID: $RELEASE_ID"
+          else
+            echo "Existing release found with ID: $RELEASE_ID"
+          fi
+          
+          # Upload the built .deb package
+          # FIX: All backslashes removed for clean execution
+          curl -s -X POST -H "Authorization: token $CODEBERG_TOKEN" -H "Content-Type: application/octet-stream" --data-binary "@pkg.deb" "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=aslookup-$RELEASE_VERSION-ubuntu-amd64.deb"
