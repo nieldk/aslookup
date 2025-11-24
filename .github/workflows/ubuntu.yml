@@ -107,78 +107,81 @@ jobs:
 
   # ---------------- JOB 2: Arch Linux (.pkg.tar.zst) ----------------
   build-arch:
-    # Use your available Ubuntu runner
+    # Use your available Ubuntu runner (no container needed)
     runs-on: codeberg-tiny
-    # IMPORTANT: Run all steps within an Arch Linux Docker container
-    container: archlinux/base:latest
     steps:
       - name: "Checkout code"
-        # The checkout runs inside the container now
         run: |
-          pacman -Syu --noconfirm git
+          # Clone the full repository history
           git clone https://codeberg.org/nieldk/aslookup.git .
+          # Checkout the specific commit that triggered the build
           git checkout "$CI_COMMIT_SHA" || true
           
-      - name: "Install dependencies (Pacman)"
+      - name: "Install dependencies (Ubuntu tools for Arch packaging)"
         run: |
-          # Install necessary Arch tools: base-devel (makepkg), curl, cjson, and jq
-          pacman -Syu --noconfirm base-devel curl cjson jq
+          # Install bsdtar (for creating tar archives) and zstd (for compression)
+          sudo apt-get update
+          sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev jq curl bsdtar zstd
 
       - name: "Set version (Git-based)"
         id: set_version_arch
         run: |
-          # Use the same version logic
           TAG_NAME=$(git describe --tags --abbrev=0 2>/dev/null)
           if [ -z "$TAG_NAME" ]; then
             TAG_NAME=$(git rev-parse --short HEAD)
           fi
           RELEASE_VERSION="${TAG_NAME#v}"
           
-          # This variable will be set in the container's environment
           echo "RELEASE_VERSION=$RELEASE_VERSION" >> $GITHUB_ENV
           echo "DEBUG: Final calculated RELEASE_VERSION via git is '$RELEASE_VERSION'"
           
-          # Store the calculated version in a temporary file
           echo -n "$RELEASE_VERSION" > .release_version 
 
-      - name: "Create PKGBUILD"
+      - name: "Build binary and package manually"
         run: |
           RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
+
+          # 1. Compile the binary
+          echo "Compiling binary..."
+          gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -DVERSION=\"\\\"$RELEASE_VERSION\\\"\"
           
-          cat <<EOF > PKGBUILD
-          # Maintainer: Niel Nielsen <nieldk@gmail.com>
-          pkgname=aslookup
-          pkgver=$RELEASE_VERSION
-          pkgrel=1
-          pkgdesc="ASN lookup utility"
-          arch=('x86_64')
-          url="https://codeberg.org/nieldk/aslookup"
-          license=('GPL3')
-          depends=('curl' 'cjson')
-          makedepends=('gcc')
-          source=('aslookup.c')
-          sha256sums=('SKIP')
-
-          build() {
-            # Compile the source file
-            gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -DVERSION=\"\\\"$pkgver\\\"\"
-          }
-
-          package() {
-            # Install the binary to /usr/bin (standard location for Arch)
-            install -Dm755 aslookup "\$pkgdir/usr/bin/aslookup"
-          }
+          # 2. Create the package directory structure
+          PKG_DIR="pkg-arch"
+          mkdir -p "$PKG_DIR/usr/bin"
+          
+          # 3. Install the binary
+          echo "Installing binary to $PKG_DIR/usr/bin/..."
+          cp aslookup "$PKG_DIR/usr/bin/aslookup"
+          
+          # 4. Create the Arch package metadata file (.PKGINFO)
+          echo "Creating .PKGINFO..."
+          cat <<EOF > "$PKG_DIR/.PKGINFO"
+          # Generated manually for Arch package
+          pkgname = aslookup
+          pkgver = $RELEASE_VERSION-1
+          pkgdesc = ASN lookup utility
+          url = https://codeberg.org/nieldk/aslookup
+          builddate = $(date +%s)
+          packager = Niel Nielsen <nieldk@gmail.com>
+          size = $(du -sb aslookup | awk '{print $1}')
+          arch = x86_64
+          license = GPL3
+          depend = curl
+          depend = cjson
           EOF
-
-      - name: "Build .pkg.tar.zst"
-        run: |
-          # Build the Arch package using makepkg
-          makepkg -f --noconfirm
           
-          # Find the resulting package file name
-          PKG_FILE=$(find . -maxdepth 1 -name "aslookup-*.pkg.tar.zst")
-          # This variable will be set in the container's environment
-          echo "PKG_FILE=$PKG_FILE" >> $GITHUB_ENV
+          # 5. Create the .tar.zst package using bsdtar and zstd
+          PKG_FILENAME="aslookup-$RELEASE_VERSION-1-x86_64.pkg.tar.zst"
+          echo "Creating final package $PKG_FILENAME..."
+          
+          # The key to Arch packaging: tar the contents of the package directory, then compress with zstd.
+          # We use bsdtar since the Ubuntu/Debian 'tar' might not support the exact options.
+          (cd "$PKG_DIR" && bsdtar -czf ../"$PKG_FILENAME" --format=ustar .)
+          zstd -q -f -o "$PKG_FILENAME" "$PKG_FILENAME"
+          
+          # Store the filename for the next step
+          echo "PKG_FILE=$PKG_FILENAME" >> $GITHUB_ENV
+
 
       - name: "Upload Arch .pkg.tar.zst"
         env:
@@ -195,6 +198,7 @@ jobs:
             RELEASE_TAG="v$RELEASE_VERSION"
           fi
           AUTH_HEADER="Authorization: token ${AUTH_TOKEN}"
+          PKG_FILE_PATH=$(cat $GITHUB_ENV | grep 'PKG_FILE=' | cut -d= -f2)
           # --------------------------------------------------------------------------
 
           echo "DEBUG: Looking for existing release ID..."
@@ -202,23 +206,18 @@ jobs:
           RELEASE_ID=$(curl -s -H "$AUTH_HEADER" "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" | jq -r "if type==\"array\" then .[] | select(.tag_name==\"$RELEASE_TAG\") | .id else empty end")
 
           if [ -z "$RELEASE_ID" ]; then
-              # This is expected if the Arch job starts before the Ubuntu job finishes creating the release.
-              # A better practice would be to ensure jobs run sequentially or add a retry/wait here.
-              # For now, we rely on the Ubuntu job creating it first, but we will assume it exists since it passed the previous run.
+              # Since the Ubuntu job should have created it, let's assume a brief wait might be needed
+              # Or rely on the Ubuntu job running first (which is the default behavior if not explicitly ordered).
               echo "::error::Release ID not found. Assuming release creation failed or did not occur."
               exit 1
           fi
           echo "Existing release found with ID: $RELEASE_ID"
           
           # Upload the built .pkg.tar.zst package
-          PKG_FILE_PATH=$(cat $GITHUB_ENV | grep 'PKG_FILE=' | cut -d= -f2)
-
           ASSET_NAME=$(basename "$PKG_FILE_PATH")
           UPLOAD_URL="https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$ASSET_NAME"
           
           echo "Attempting to upload file '$PKG_FILE_PATH' to release ID $RELEASE_ID..."
-          # Note: We must ensure curl is available *outside* the Arch container for this final step, 
-          # but since the whole job is marked `container:`, we rely on `curl` being installed inside.
           curl -v -X POST -H "$AUTH_HEADER" -H "Content-Type: application/octet-stream" --data-binary "@$PKG_FILE_PATH" "$UPLOAD_URL"
           
           echo "Upload attempt finished. Look for 201 Created status code above."
