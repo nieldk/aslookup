@@ -6,7 +6,7 @@ on:
       - "*"
 
 jobs:
-  # ---------------- Ubuntu (.deb) ----------------
+  # ---------------- JOB 1: Ubuntu (.deb) ----------------
   build-ubuntu:
     runs-on: codeberg-tiny
     steps:
@@ -23,32 +23,28 @@ jobs:
           sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev dpkg-dev jq curl
 
       - name: "Set version (Git-based)"
+        id: set_version_deb
         run: |
           # Get the version directly from Git using 'git describe'
           TAG_NAME=$(git describe --tags --abbrev=0 2>/dev/null)
-
-          # Fallback: If no tag is found, use a short commit hash for a version
           if [ -z "$TAG_NAME" ]; then
             TAG_NAME=$(git rev-parse --short HEAD)
           fi
-
-          # Strip leading 'v'
           RELEASE_VERSION="${TAG_NAME#v}"
           
+          echo "RELEASE_VERSION=$RELEASE_VERSION" >> $GITHUB_ENV
           echo "DEBUG: Final calculated RELEASE_VERSION via git is '$RELEASE_VERSION'"
           
-          # Store the calculated version in a temporary file
+          # Store the calculated version in a temporary file (for cross-step access)
           echo -n "$RELEASE_VERSION" > .release_version 
 
       - name: "Build binary"
         run: |
-          # Retrieve the version from the file and trim any whitespace/newlines
           RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
           gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -DVERSION=\"\\\"$RELEASE_VERSION\\\"\"
 
       - name: "Prepare .deb package"
         run: |
-          # Retrieve the version from the file and trim any whitespace/newlines
           RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
           
           mkdir -p pkg/usr/local/bin
@@ -65,40 +61,31 @@ jobs:
           EOF
           dpkg-deb --build pkg
 
-      - name: "Upload Ubuntu .deb (Definitive Token Fix)"
-        # FIX: Inject CODEBERG_TOKEN explicitly into the step's environment
+      - name: "Upload Ubuntu .deb"
         env:
           AUTH_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
         run: |
-          # --- Extract REPO OWNER/NAME from git remote URL ---
+          # --- Environment setup and version retrieval ---
           GIT_URL=$(git remote get-url origin)
           REPO_SLUG=$(echo "$GIT_URL" | sed -E 's/.*codeberg\.org[:/]([^\/]+\/[^.]+)(\.git)?$/\1/')
           REPO_OWNER=$(echo "$REPO_SLUG" | cut -d/ -f1)
           REPO_NAME=$(echo "$REPO_SLUG" | cut -d/ -f2)
-          # --------------------------------------------------------
-          
-          # Retrieve the version from the file
           RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
-          
-          # Set the tag name
           RELEASE_TAG="${CI_TAG:-${CI_COMMIT_TAG}}"
           if [ -z "$RELEASE_TAG" ]; then
             RELEASE_TAG="v$RELEASE_VERSION"
           fi
-
-          # FIX: Use the new, reliably injected environment variable $AUTH_TOKEN
           AUTH_HEADER="Authorization: token ${AUTH_TOKEN}"
+          # -----------------------------------------------
 
-          echo "DEBUG: Using API URL variables: Owner='$REPO_OWNER', Name='$REPO_NAME', Tag='$RELEASE_TAG'"
-          
+          echo "DEBUG: Checking/creating release for Tag='$RELEASE_TAG'"
+
           # Check for existing release
           RELEASE_ID=$(curl -s -H "$AUTH_HEADER" "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" | jq -r "if type==\"array\" then .[] | select(.tag_name==\"$RELEASE_TAG\") | .id else empty end")
 
           if [ -z "$RELEASE_ID" ]; then
             echo "Release tag '$RELEASE_TAG' not found, creating new release..."
-            
             API_RESPONSE=$(curl -s -X POST -H "$AUTH_HEADER" -H "Content-Type: application/json" -d "{\"tag_name\":\"$RELEASE_TAG\",\"name\":\"Release $RELEASE_TAG\"}" "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" | tee /dev/stderr)
-              
             RELEASE_ID=$(echo "$API_RESPONSE" | jq -r .id)
 
             if [ "$RELEASE_ID" == "null" ] || [ -z "$RELEASE_ID" ]; then
@@ -110,12 +97,117 @@ jobs:
             echo "Existing release found with ID: $RELEASE_ID"
           fi
           
-          echo "Attempting to upload file 'pkg.deb' to release ID $RELEASE_ID..."
-          
+          # Upload the built .deb package
           ASSET_NAME="aslookup-$RELEASE_VERSION-ubuntu-amd64.deb"
           UPLOAD_URL="https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$ASSET_NAME"
           
-          # The final upload command, now using the reliably set AUTH_HEADER
+          echo "Attempting to upload file 'pkg.deb' to release ID $RELEASE_ID..."
           curl -v -X POST -H "$AUTH_HEADER" -H "Content-Type: application/octet-stream" --data-binary "@pkg.deb" "$UPLOAD_URL"
+          echo "Upload attempt finished. Look for 201 Created status code above."
+
+  # ---------------- JOB 2: Arch Linux (.pkg.tar.zst) ----------------
+  build-arch:
+    runs-on: arch
+    steps:
+      - name: "Checkout code"
+        run: |
+          # Clone the full repository history
+          git clone https://codeberg.org/nieldk/aslookup.git .
+          # Checkout the specific commit that triggered the build
+          git checkout "$CI_COMMIT_SHA" || true
+          
+      - name: "Install dependencies"
+        run: |
+          # Install necessary tools: build tools, curl, cjson, and jq
+          sudo pacman -Syu --noconfirm base-devel curl cjson jq
+
+      - name: "Set version (Git-based)"
+        id: set_version_arch
+        run: |
+          # Use the same version logic
+          TAG_NAME=$(git describe --tags --abbrev=0 2>/dev/null)
+          if [ -z "$TAG_NAME" ]; then
+            TAG_NAME=$(git rev-parse --short HEAD)
+          fi
+          RELEASE_VERSION="${TAG_NAME#v}"
+          
+          echo "RELEASE_VERSION=$RELEASE_VERSION" >> $GITHUB_ENV
+          echo "DEBUG: Final calculated RELEASE_VERSION via git is '$RELEASE_VERSION'"
+          
+          # Store the calculated version in a temporary file
+          echo -n "$RELEASE_VERSION" > .release_version 
+
+      - name: "Create PKGBUILD"
+        run: |
+          RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
+          
+          cat <<EOF > PKGBUILD
+          # Maintainer: Niel Nielsen <nieldk@gmail.com>
+          pkgname=aslookup
+          pkgver=$RELEASE_VERSION
+          pkgrel=1
+          pkgdesc="ASN lookup utility"
+          arch=('x86_64')
+          url="https://codeberg.org/nieldk/aslookup"
+          license=('GPL3')
+          depends=('curl' 'cjson')
+          makedepends=('gcc')
+          source=('aslookup.c')
+          sha256sums=('SKIP')
+
+          build() {
+            # Compile the source file
+            gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -DVERSION=\"\\\"$pkgver\\\"\"
+          }
+
+          package() {
+            # Install the binary to /usr/bin (standard location for Arch)
+            install -Dm755 aslookup "\$pkgdir/usr/bin/aslookup"
+          }
+          EOF
+
+      - name: "Build .pkg.tar.zst"
+        run: |
+          # Build the Arch package using makepkg
+          makepkg -f --noconfirm
+          
+          # Find the resulting package file name
+          PKG_FILE=$(find . -maxdepth 1 -name "aslookup-*.pkg.tar.zst")
+          echo "PKG_FILE=$PKG_FILE" >> $GITHUB_ENV
+
+      - name: "Upload Arch .pkg.tar.zst"
+        env:
+          AUTH_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+        run: |
+          # --- Environment setup and version retrieval (repeated for isolated job) ---
+          GIT_URL=$(git remote get-url origin)
+          REPO_SLUG=$(echo "$GIT_URL" | sed -E 's/.*codeberg\.org[:/]([^\/]+\/[^.]+)(\.git)?$/\1/')
+          REPO_OWNER=$(echo "$REPO_SLUG" | cut -d/ -f1)
+          REPO_NAME=$(echo "$REPO_SLUG" | cut -d/ -f2)
+          RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
+          RELEASE_TAG="${CI_TAG:-${CI_COMMIT_TAG}}"
+          if [ -z "$RELEASE_TAG" ]; then
+            RELEASE_TAG="v$RELEASE_VERSION"
+          fi
+          AUTH_HEADER="Authorization: token ${AUTH_TOKEN}"
+          # --------------------------------------------------------------------------
+
+          echo "DEBUG: Looking for existing release ID..."
+          # Check for existing release (same ID for both files)
+          RELEASE_ID=$(curl -s -H "$AUTH_HEADER" "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" | jq -r "if type==\"array\" then .[] | select(.tag_name==\"$RELEASE_TAG\") | .id else empty end")
+
+          if [ -z "$RELEASE_ID" ]; then
+              echo "::error::Release ID not found. The Ubuntu job should have created it."
+              exit 1
+          fi
+          echo "Existing release found with ID: $RELEASE_ID"
+          
+          # Upload the built .pkg.tar.zst package
+          # Use the filename found in the previous step
+          ASSET_NAME=$(basename "$PKG_FILE")
+          UPLOAD_URL="https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$ASSET_NAME"
+          
+          echo "Attempting to upload file '$PKG_FILE' to release ID $RELEASE_ID..."
+          curl -v -X POST -H "$AUTH_HEADER" -H "Content-Type: application/octet-stream" --data-binary "@$PKG_FILE" "$UPLOAD_URL"
           
           echo "Upload attempt finished. Look for 201 Created status code above."
