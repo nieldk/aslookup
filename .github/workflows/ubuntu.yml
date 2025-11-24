@@ -204,9 +204,9 @@ jobs:
           PKG_FILENAME="aslookup-$PKG_VER_REL-x86_64.pkg.tar.zst"
           echo "Creating final package $PKG_FILENAME using tar and zstd pipe..."
           
-          # FIX: Added --owner=root --group=root to force the correct ownership
-          # inside the archive, which is necessary for pacman to trust the package.
-          tar -C "$PKG_DIR" --owner=root --group=root -cf - . | zstd -T0 -c -q -f > "$PKG_FILENAME"
+          # FINAL FIX: Explicitly list files in the required Arch order (.PKGINFO, .MTREE, usr)
+          # This ensures the metadata is at the beginning of the archive.
+          tar -C "$PKG_DIR" --owner=root --group=root -cf - .PKGINFO .MTREE usr | zstd -T0 -c -q -f > "$PKG_FILENAME"
           
           # Store the filename for the next step via environment variable
           echo "PKG_FILE=$PKG_FILENAME" >> $GITHUB_ENV
