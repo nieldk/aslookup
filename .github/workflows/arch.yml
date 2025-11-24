@@ -34,7 +34,6 @@ jobs:
           "
 
       - name: "Find built package"
-        id: findpkg
         run: echo "PKGFILE=$(ls *.pkg.tar.zst | head -n1)" >> $GITHUB_ENV
 
       - name: "Upload Arch package to Codeberg Release"
