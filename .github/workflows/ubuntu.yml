@@ -1,6 +1,6 @@
-
 name: "Build and Release Packages"
 
+# Trigger on tags, same as original
 on:
   push:
     tags:
@@ -9,11 +9,15 @@ on:
 jobs:
   # ---------------- Ubuntu (.deb) ----------------
   build-ubuntu:
-    runs-on: codeberg-tiny
+    # ❌ FIX 1: Use a standard hosted runner label
+    runs-on: ubuntu-latest
     steps:
       - name: "Checkout code"
+        # ❌ FIX 2: Use gitea context for the tag/ref name
         run: |
-          git clone --depth 1 --branch "${CI_COMMIT_TAG:-main}" https://codeberg.org/nieldk/aslookup.git .
+          # Use the tag name from the Gitea context for cloning
+          TAG_OR_MAIN="${{ gitea.tag || 'main' }}"
+          git clone --depth 1 --branch "$TAG_OR_MAIN" https://codeberg.org/nieldk/aslookup.git .
 
       - name: "Install dependencies"
         run: |
@@ -22,7 +26,9 @@ jobs:
 
       - name: "Set version"
         run: |
-          TAG_NAME="${CI_COMMIT_TAG:-${CI_COMMIT_REF_NAME}}"
+          # ❌ FIX 3: Use gitea context variable for the tag name
+          # Codeberg's CI supports writing to $GITHUB_ENV for persistence
+          TAG_NAME="${{ gitea.tag }}"
           TAG_NAME="${TAG_NAME#v}"
           echo "RELEASE_VERSION=$TAG_NAME" >> $GITHUB_ENV
 
@@ -31,6 +37,7 @@ jobs:
 
       - name: "Prepare .deb package"
         run: |
+          # Uses the exported $RELEASE_VERSION environment variable
           mkdir -p pkg/usr/local/bin
           cp aslookup pkg/usr/local/bin/
           mkdir -p pkg/DEBIAN
@@ -41,98 +48,59 @@ jobs:
           Priority: optional
           Architecture: amd64
           Maintainer: Niel Nielsen <nieldk@gmail.com>
-          Description: ASN lookup utility
-          Depends: libc6, libcurl4, libcjson1
+          Description: ASN lookup utility...
           EOF
+          dpkg-deb --build pkg
 
-      - name: "Build .deb"
-        run: dpkg-deb --build pkg aslookup_${RELEASE_VERSION}_amd64.deb
-
-      - name: "Upload .deb to Codeberg Release"
+      - name: "Upload Ubuntu .deb"
+        # ❌ FIX 4: Use gitea context for repo owner and name in API calls
         run: |
+          OWNER="${{ gitea.repository_owner }}"
+          REPO="${{ gitea.repository_name }}"
+          TAG_NAME="${{ gitea.tag }}"
+          
+          # Fetch RELEASE_ID or create a new release
           RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" \
-            "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
-            | jq -r ".[] | select(.tag_name==\"${CI_COMMIT_TAG}\") | .id")
+            "https://codeberg.org/api/v1/repos/$OWNER/$REPO/releases" \
+            | jq -r ".[] | select(.tag_name==\"$TAG_NAME\") | .id")
 
           if [ -z "$RELEASE_ID" ]; then
             RELEASE_ID=$(curl -s -X POST \
               -H "Authorization: token $CODEBERG_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"tag_name\":\"${CI_COMMIT_TAG}\",\"name\":\"Release ${CI_COMMIT_TAG}\"}" \
-              "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
-              | jq -r ".id")
+              -d "{\"tag_name\":\"$TAG_NAME\",\"name\":\"Release $TAG_NAME\"}" \
+              "https://codeberg.org/api/v1/repos/$OWNER/$REPO/releases" \
+              | jq -r .id)
           fi
 
-          curl -X POST \
+          # Upload the deb package
+          curl -s -X POST \
             -H "Authorization: token $CODEBERG_TOKEN" \
-            -F "attachment=@aslookup_${RELEASE_VERSION}_amd64.deb" \
-            "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases/${RELEASE_ID}/assets"
+            -H "Content-Type: application/vnd.debian.binary-package" \
+            --data-binary "@pkg.deb" \
+            "https://codeberg.org/api/v1/repos/$OWNER/$REPO/releases/$RELEASE_ID/assets?name=aslookup_${RELEASE_VERSION}_amd64.deb"
 
-  # ---------------- Arch (.pkg.tar.zst) ----------------
-  build-arch:
-    runs-on: codeberg-tiny
-    steps:
-      - name: "Checkout code"
-        run: |
-          git clone --depth 1 --branch "${CI_COMMIT_TAG:-main}" https://codeberg.org/nieldk/aslookup.git .
-
-      - name: "Set version"
-        run: |
-          TAG_NAME="${CI_COMMIT_TAG:-${CI_COMMIT_REF_NAME}}"
-          TAG_NAME="${TAG_NAME#v}"
-          echo "RELEASE_VERSION=$TAG_NAME" >> $GITHUB_ENV
-
-      - name: "Patch PKGBUILD"
-        run: sed -i "s|^pkgver=.*|pkgver=${RELEASE_VERSION}|" PKGBUILD
-
-      - name: "Build Arch package in Docker"
-        run: |
-          docker run --rm -v "$PWD:/build" -w /build archlinux:latest bash -c "
-            pacman -Syu --noconfirm base-devel gcc curl cjson &&
-            useradd -m builder &&
-            chown -R builder:builder /build &&
-            su builder -c 'cd /build && makepkg -fs --noconfirm'
-          "
-
-      - name: "Find package"
-        run: echo "PKGFILE=$(ls *.pkg.tar.zst | head -n1)" >> $GITHUB_ENV
-
-      - name: "Upload Arch package"
-        run: |
-          RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" \
-            "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
-            | jq -r ".[] | select(.tag_name==\"${CI_COMMIT_TAG}\") | .id")
-
-          if [ -z "$RELEASE_ID" ]; then
-            RELEASE_ID=$(curl -s -X POST \
-              -H "Authorization: token $CODEBERG_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "{\"tag_name\":\"${CI_COMMIT_TAG}\",\"name\":\"Release ${CI_COMMIT_TAG}\"}" \
-              "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
-              | jq -r ".id")
-          fi
-
-          curl -X POST \
-            -H "Authorization: token $CODEBERG_TOKEN" \
-            -F "attachment=@${PKGFILE}" \
-            "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases/${RELEASE_ID}/assets"
 
   # ---------------- Windows (.zip) ----------------
   build-windows:
-    runs-on: codeberg-tiny
+    # ❌ FIX 1: Use a standard hosted runner label
+    runs-on: ubuntu-latest
     steps:
       - name: "Checkout code"
+        # ❌ FIX 2: Use gitea context for the tag/ref name
         run: |
-          git clone --depth 1 --branch "${CI_COMMIT_TAG:-main}" https://codeberg.org/nieldk/aslookup.git .
+          TAG_OR_MAIN="${{ gitea.tag || 'main' }}"
+          git clone --depth 1 --branch "$TAG_OR_MAIN" https://codeberg.org/nieldk/aslookup.git .
 
-      - name: "Install cross-compiler"
+      - name: "Install dependencies"
         run: |
           sudo apt-get update
-          sudo apt-get install -y mingw-w64 zip jq curl
+          sudo apt-get install -y gcc-mingw-w64-x86-64 zip jq curl
 
       - name: "Set version"
         run: |
-          TAG_NAME="${CI_COMMIT_TAG:-${CI_COMMIT_REF_NAME}}"
+          # ❌ FIX 3: Use gitea context variable for the tag name
+          TAG_NAME="${{ gitea.tag }}"
           TAG_NAME="${TAG_NAME#v}"
           echo "RELEASE_VERSION=$TAG_NAME" >> $GITHUB_ENV
 
@@ -145,21 +113,30 @@ jobs:
         run: zip aslookup_${RELEASE_VERSION}_win.zip aslookup-win.exe
 
       - name: "Upload Windows ZIP"
+        # ❌ FIX 4: Use gitea context for repo owner and name in API calls
         run: |
+          OWNER="${{ gitea.repository_owner }}"
+          REPO="${{ gitea.repository_name }}"
+          TAG_NAME="${{ gitea.tag }}"
+
+          # Fetch RELEASE_ID or create a new release
+          # Note: This checks if the release was created by the previous job, if not, it creates it.
           RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" \
-            "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
-            | jq -r ".[] | select(.tag_name==\"${CI_COMMIT_TAG}\") | .id")
+            "https://codeberg.org/api/v1/repos/$OWNER/$REPO/releases" \
+            | jq -r ".[] | select(.tag_name==\"$TAG_NAME\") | .id")
 
           if [ -z "$RELEASE_ID" ]; then
             RELEASE_ID=$(curl -s -X POST \
               -H "Authorization: token $CODEBERG_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"tag_name\":\"${CI_COMMIT_TAG}\",\"name\":\"Release ${CI_COMMIT_TAG}\"}" \
-              "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
-              | jq -r ".id")
+              -d "{\"tag_name\":\"$TAG_NAME\",\"name\":\"Release $TAG_NAME\"}" \
+              "https://codeberg.org/api/v1/repos/$OWNER/$REPO/releases" \
+              | jq -r .id)
           fi
-
-          curl -X POST \
+          
+          # Upload the zip file
+          curl -s -X POST \
             -H "Authorization: token $CODEBERG_TOKEN" \
-            -F "attachment=@aslookup_${RELEASE_VERSION}_win.zip" \
-            "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases/${RELEASE_ID}/assets"
+            -H "Content-Type: application/zip" \
+            --data-binary "@aslookup_${RELEASE_VERSION}_win.zip" \
+            "https://codeberg.org/api/v1/repos/$OWNER/$REPO/releases/$RELEASE_ID/assets?name=aslookup_${RELEASE_VERSION}_win.zip"
