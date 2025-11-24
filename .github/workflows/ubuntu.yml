@@ -65,7 +65,10 @@ jobs:
           EOF
           dpkg-deb --build pkg
 
-      - name: "Upload Ubuntu .deb (Final Attempt)"
+      - name: "Upload Ubuntu .deb (Definitive Token Fix)"
+        # FIX: Inject CODEBERG_TOKEN explicitly into the step's environment
+        env:
+          AUTH_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
         run: |
           # --- Extract REPO OWNER/NAME from git remote URL ---
           GIT_URL=$(git remote get-url origin)
@@ -83,11 +86,11 @@ jobs:
             RELEASE_TAG="v$RELEASE_VERSION"
           fi
 
-          # FIX: Explicitly set the authorization header variable
-          AUTH_HEADER="Authorization: token ${CODEBERG_TOKEN}"
+          # FIX: Use the new, reliably injected environment variable $AUTH_TOKEN
+          AUTH_HEADER="Authorization: token ${AUTH_TOKEN}"
 
           echo "DEBUG: Using API URL variables: Owner='$REPO_OWNER', Name='$REPO_NAME', Tag='$RELEASE_TAG'"
-
+          
           # Check for existing release
           RELEASE_ID=$(curl -s -H "$AUTH_HEADER" "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" | jq -r "if type==\"array\" then .[] | select(.tag_name==\"$RELEASE_TAG\") | .id else empty end")
 
@@ -109,11 +112,10 @@ jobs:
           
           echo "Attempting to upload file 'pkg.deb' to release ID $RELEASE_ID..."
           
-          # FIX: Final curl command written on a single line for maximum robustness against shell parsing issues
-          # We use the pre-defined $AUTH_HEADER variable.
           ASSET_NAME="aslookup-$RELEASE_VERSION-ubuntu-amd64.deb"
           UPLOAD_URL="https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$ASSET_NAME"
           
+          # The final upload command, now using the reliably set AUTH_HEADER
           curl -v -X POST -H "$AUTH_HEADER" -H "Content-Type: application/octet-stream" --data-binary "@pkg.deb" "$UPLOAD_URL"
           
           echo "Upload attempt finished. Look for 201 Created status code above."
