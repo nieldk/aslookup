@@ -65,7 +65,7 @@ jobs:
           EOF
           dpkg-deb --build pkg
 
-      - name: "Upload Ubuntu .deb"
+      - name: "Upload Ubuntu .deb (Verbose)"
         run: |
           # --- Extract REPO OWNER/NAME from git remote URL ---
           GIT_URL=$(git remote get-url origin)
@@ -91,7 +91,6 @@ jobs:
           if [ -z "$RELEASE_ID" ]; then
             echo "Release tag '$RELEASE_TAG' not found, creating new release..."
             
-            # Use 'tee' to capture the output while also displaying it (for debug)
             API_RESPONSE=$(curl -s -X POST -H "Authorization: token $CODEBERG_TOKEN" -H "Content-Type: application/json" -d "{\"tag_name\":\"$RELEASE_TAG\",\"name\":\"Release $RELEASE_TAG\"}" "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" | tee /dev/stderr)
               
             RELEASE_ID=$(echo "$API_RESPONSE" | jq -r .id)
@@ -105,6 +104,12 @@ jobs:
             echo "Existing release found with ID: $RELEASE_ID"
           fi
           
-          # Upload the built .deb package
-          # FIX: All backslashes removed for clean execution
-          curl -s -X POST -H "Authorization: token $CODEBERG_TOKEN" -H "Content-Type: application/octet-stream" --data-binary "@pkg.deb" "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=aslookup-$RELEASE_VERSION-ubuntu-amd64.deb"
+          # FIX: Use '-v' (verbose) instead of '-s' (silent) to debug the upload failure
+          # This will show the HTTP status code and response body.
+          echo "Attempting to upload file 'pkg.deb' to release ID $RELEASE_ID..."
+          curl -v -X POST \
+            -H "Authorization: token $CODEBERG_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@pkg.deb" \
+            "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=aslookup-$RELEASE_VERSION-ubuntu-amd64.deb"
+          echo "Upload attempt finished. Check output above for status code (should be 201)."
