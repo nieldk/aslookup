@@ -1,53 +1,54 @@
-name: Build and Release aslookup-win on Windows
+
+name: "Build and Release aslookup-win"
 
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   build-windows:
     runs-on: codeberg-tiny
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install MinGW
-        run: choco install mingw -y
-
-      - name: Add MinGW to PATH
-        # Use the explicit path for clarity and reliability on Windows runners
-        run: echo "C:\Program Files\mingw-w64\x86_64-12.2.0-posix-seh-rt_v10-rev2\mingw64\bin" >> $GITHUB_PATH
-
-      - name: Download libcurl for Windows
-        # Added --ssl-no-revoke to fix the Schannel revocation error
-        run: curl -LO --ssl-no-revoke https://curl.se/windows/dl-8.7.1_2/curl-8.7.1_2-win64-mingw.zip
-
-      - name: Extract libcurl ZIP
-        run: powershell -Command "Expand-Archive -Path curl-8.7.1_2-win64-mingw.zip -DestinationPath ."
-
-      - name: Build aslookup-win.exe
-        run: gcc aslookup-win.c cJSON.c -o aslookup-win.exe -I. -I./curl-8.7.1_2-win64-mingw/include -L./curl-8.7.1_2-win64-mingw/lib -lcurl -lws2_32 -DPROGRAM_VERSION='"${{ github.ref_name }}"'
-
-      - name: Set release version (Ensuring correct syntax for Windows shell)
-        # GITHUB_REF_NAME already contains the tag (e.g., v1.3.0)
-        run: echo "RELEASE_VERSION=${{ github.ref_name }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        shell: powershell
-
-      - name: Package executable and DLL
+      - name: "Checkout code"
         run: |
-          powershell -Command "Copy-Item -Path ./curl-8.7.1_2-win64-mingw/bin/libcurl-x64.dll -Destination ./libcurl-x64.dll"
-          # This should now use the correctly set environment variable
-          powershell -Command "Compress-Archive -Path aslookup-win.exe, libcurl-x64.dll -DestinationPath aslookup_${{ env.RELEASE_VERSION }}_win.zip"
+          git clone "$CI_REPOSITORY_URL" .
+          git checkout "$CI_COMMIT_REF_NAME"
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
-          draft: false
-          prerelease: false
-          files: aslookup_${{ env.RELEASE_VERSION }}_win.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      - name: "Install cross-compilation tools"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64 zip jq curl
+
+      - name: "Set release version"
+        run: echo "RELEASE_VERSION=${CI_COMMIT_TAG}" >> $GITHUB_ENV
+
+      - name: "Build Windows executable"
+        run: |
+          x86_64-w64-mingw32-gcc aslookup-win.c cJSON.c -o aslookup-win.exe \
+            -lws2_32 -lcurl -DPROGRAM_VERSION="\"$RELEASE_VERSION\""
+
+      - name: "Package executable"
+        run: |
+          zip aslookup_${RELEASE_VERSION}_win.zip aslookup-win.exe
+
+      - name: "Upload ZIP to Codeberg Release"
+        run: |
+          RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" \
+            "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
+            | jq -r ".[] | select(.tag_name==\"${CI_COMMIT_TAG}\") | .id")
+
+          if [ -z "$RELEASE_ID" ]; then
+            RELEASE_ID=$(curl -s -X POST \
+              -H "Authorization: token $CODEBERG_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"tag_name\":\"${CI_COMMIT_TAG}\",\"name\":\"Release ${CI_COMMIT_TAG}\"}" \
+              "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
+              | jq -r ".id")
+          fi
+
+          curl -X POST \
+            -H "Authorization: token $CODEBERG_TOKEN" \
+            -F "attachment=@aslookup_${RELEASE_VERSION}_win.zip" \
+            "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases/${RELEASE_ID}/assets"
