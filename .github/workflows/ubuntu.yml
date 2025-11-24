@@ -196,7 +196,7 @@ jobs:
           ./.PKGINFO type=file mode=0644 size=$INFO_SIZE sha256=$INFO_SHA256
           EOF
 
-          # **NEW FIX: Explicitly set permissions for metadata files**
+          # Explicitly set permissions for metadata files
           chmod 644 "$PKG_DIR/.PKGINFO"
           chmod 644 "$PKG_DIR/.MTREE"
 
@@ -204,8 +204,9 @@ jobs:
           PKG_FILENAME="aslookup-$PKG_VER_REL-x86_64.pkg.tar.zst"
           echo "Creating final package $PKG_FILENAME using tar and zstd pipe..."
           
-          # Use 'tar -C' to change directory, and pipe output directly to zstd.
-          tar -C "$PKG_DIR" -cf - . | zstd -T0 -c -q -f > "$PKG_FILENAME"
+          # FIX: Added --owner=root --group=root to force the correct ownership
+          # inside the archive, which is necessary for pacman to trust the package.
+          tar -C "$PKG_DIR" --owner=root --group=root -cf - . | zstd -T0 -c -q -f > "$PKG_FILENAME"
           
           # Store the filename for the next step via environment variable
           echo "PKG_FILE=$PKG_FILENAME" >> $GITHUB_ENV
