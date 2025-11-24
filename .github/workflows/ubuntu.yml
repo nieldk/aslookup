@@ -12,8 +12,7 @@ jobs:
     steps:
       - name: "Checkout code"
         run: |
-          git clone https://codeberg.org/nieldk/aslookup.git .
-          git checkout "$CI_COMMIT_REF_NAME"
+          git clone --depth 1 --branch "${CI_COMMIT_TAG:-main}" https://codeberg.org/nieldk/aslookup.git .
 
       - name: "Install dependencies"
         run: |
@@ -63,3 +62,4 @@ jobs:
           curl -X POST \
             -H "Authorization: token $CODEBERG_TOKEN" \
             -F "attachment=@aslookup_${RELEASE_VERSION}_amd64.deb" \
+            "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases/${RELEASE_ID}/assets"
