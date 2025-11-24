@@ -36,7 +36,6 @@ jobs:
           echo "DEBUG: Final calculated RELEASE_VERSION via git is '$RELEASE_VERSION'"
           
           # Store the calculated version in a temporary file (for cross-step access)
-          # Note: This file is only needed for subsequent steps within this single job.
           echo -n "$RELEASE_VERSION" > .release_version 
 
       - name: "Build binary"
@@ -157,10 +156,10 @@ jobs:
           PKG_DIR="pkg-arch"
           mkdir -p "$PKG_DIR/usr/bin"
           
-          # 3. Install the binary and set permissions
+          # 3. Install the binary and set executable permissions
           echo "Installing binary to $PKG_DIR/usr/bin/..."
           cp aslookup "$PKG_DIR/usr/bin/aslookup"
-          chmod 755 "$PKG_DIR/usr/bin/aslookup" # Set executable permission
+          chmod 755 "$PKG_DIR/usr/bin/aslookup" 
           
           # 4. Create the Arch package metadata file (.PKGINFO)
           echo "Creating .PKGINFO..."
@@ -196,6 +195,10 @@ jobs:
           ./usr/bin/aslookup type=file mode=0755 size=$BIN_SIZE sha256=$BIN_SHA256
           ./.PKGINFO type=file mode=0644 size=$INFO_SIZE sha256=$INFO_SHA256
           EOF
+
+          # **NEW FIX: Explicitly set permissions for metadata files**
+          chmod 644 "$PKG_DIR/.PKGINFO"
+          chmod 644 "$PKG_DIR/.MTREE"
 
           # 6. Create the .tar.zst package using tar and zstd via pipe
           PKG_FILENAME="aslookup-$PKG_VER_REL-x86_64.pkg.tar.zst"
