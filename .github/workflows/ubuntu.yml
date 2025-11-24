@@ -21,24 +21,42 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev dpkg-dev jq curl
 
-      - name: "Set version"
+      - name: "Set version (DEBUG)"
         run: |
           TAG_NAME="${CI_COMMIT_TAG:-${CI_COMMIT_REF_NAME}}"
           TAG_NAME="${TAG_NAME#v}"
-          # Store the calculated version in a temporary file (no extra characters/newlines)
+          
+          # --- DEBUG OUTPUT START ---
+          echo "DEBUG: CI_COMMIT_TAG is '$CI_COMMIT_TAG'"
+          echo "DEBUG: CI_COMMIT_REF_NAME is '$CI_COMMIT_REF_NAME'"
+          echo "DEBUG: Calculated TAG_NAME is '$TAG_NAME'"
+          # --- DEBUG OUTPUT END ---
+
+          # Store the calculated version in a temporary file
           echo -n "$TAG_NAME" > .release_version 
 
       - name: "Build binary"
         run: |
           # Retrieve the version from the file and trim any whitespace/newlines
           RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
+          
+          echo "DEBUG: Build binary RELEASE_VERSION is '$RELEASE_VERSION'" # DEBUG
+
           gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -DVERSION=\"\\\"$RELEASE_VERSION\\\"\"
 
-      - name: "Prepare .deb package"
+      - name: "Prepare .deb package (DEBUG)"
         run: |
           # Retrieve the version from the file and trim any whitespace/newlines
           RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
-
+          
+          # --- DEBUG OUTPUT START ---
+          echo "DEBUG: Prepare package RELEASE_VERSION is '$RELEASE_VERSION'"
+          if [ -z "$RELEASE_VERSION" ]; then
+            echo "::error::The RELEASE_VERSION variable is empty! Aborting build for inspection."
+            exit 1
+          fi
+          # --- DEBUG OUTPUT END ---
+          
           mkdir -p pkg/usr/local/bin
           cp aslookup pkg/usr/local/bin/
           mkdir -p pkg/DEBIAN
