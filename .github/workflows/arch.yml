@@ -1,46 +1,58 @@
-name: Build and Release Arch Package
+
+name: "Build and Release Arch Package"
 
 on:
   push:
     tags:
-      - '*'
-
-permissions:
-  contents: write
+      - "*"
 
 jobs:
   build:
     runs-on: codeberg-tiny
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: "Checkout code"
+        run: |
+          git clone "$CI_REPOSITORY_URL" .
+          git checkout "$CI_COMMIT_REF_NAME"
 
-      - name: Set version from tag
-        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+      - name: "Set version from tag"
+        run: echo "RELEASE_VERSION=${CI_COMMIT_TAG#v}" >> $GITHUB_ENV
 
-      - name: Patch PKGBUILD version
+      - name: "Patch PKGBUILD version"
         run: sed -i "s|^pkgver=.*|pkgver=${RELEASE_VERSION}|" PKGBUILD
 
-      - name: Build Arch package in Docker
+      - name: "Build Arch package in Docker"
         env:
           RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
         run: |
-          docker run --rm -v $PWD:/build -w /build -e RELEASE_VERSION=${RELEASE_VERSION} archlinux:latest bash -c "
+          docker run --rm -v "$PWD:/build" -w /build -e RELEASE_VERSION="${RELEASE_VERSION}" archlinux:latest bash -c "
             pacman -Syu --noconfirm base-devel gcc curl cjson &&
             useradd -m builder &&
             chown -R builder:builder /build &&
             su builder -c 'cd /build && makepkg -fs --noconfirm'
           "
 
-      - name: Find built package
+      - name: "Find built package"
         id: findpkg
         run: echo "PKGFILE=$(ls *.pkg.tar.zst | head -n1)" >> $GITHUB_ENV
 
-      - name: Upload Arch package to release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: ${{ env.PKGFILE }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      - name: "Upload Arch package to Codeberg Release"
+        run: |
+          RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" \
+            "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
+            | jq -r ".[] | select(.tag_name==\"${CI_COMMIT_TAG}\") | .id")
+
+          if [ -z "$RELEASE_ID" ]; then
+            RELEASE_ID=$(curl -s -X POST \
+              -H "Authorization: token $CODEBERG_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"tag_name\":\"${CI_COMMIT_TAG}\",\"name\":\"Release ${CI_COMMIT_TAG}\"}" \
+              "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
+              | jq -r ".id")
+          fi
+
+          curl -X POST \
+            -H "Authorization: token $CODEBERG_TOKEN" \
+            -F "attachment=@${PKGFILE}" \
+            "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases/${RELEASE_ID}/assets"
