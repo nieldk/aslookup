@@ -1,88 +1,85 @@
-name: Alpine Build and APK Release (with cJSON build)
+
+name: Alpine Build and APK Release (Codeberg)
 
 on:
   push:
     tags:
       - '*'
 
-permissions:
-  contents: write
-  packages: write
-
 jobs:
   build:
-    runs-on: codeberg-tiny
-    container:
-      image: alpine:latest
+    runs-on: docker
+    container: alpine:latest
 
     steps:
-      - name: Checkout aslookup code
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: codeberg-actions/checkout@v3
 
-      - name: Install Build Dependencies (Alpine) 🛠️
+      - name: Install Build Dependencies 🛠️
         run: |
           apk update
-          apk add --no-cache build-base curl-dev git cmake 
+          apk add --no-cache build-base curl-dev git cmake tar
 
-      # --- Steps to Build cJSON from Source ---
+      # --- Build cJSON ---
       - name: Clone cJSON
         run: git clone https://github.com/DaveGamble/cJSON.git /tmp/cJSON
 
       - name: Build and Install cJSON
         run: |
           cd /tmp/cJSON
-          mkdir build
-          cd build
+          mkdir build && cd build
           cmake -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=ON ..
-          make
-          make install
+          make && make install
 
-      # --- Original aslookup Steps (Modified) ---
-      - name: Set version from tag
-        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+      # --- Set version from tag ---
+      - name: Set version
+        run: echo "RELEASE_VERSION=${CI_COMMIT_TAG#v}" >> $GITHUB_ENV
 
-      - name: Build binary
+      # --- Build binary ---
+      - name: Build aslookup binary
         run: gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -DVERSION="\"$RELEASE_VERSION\""
 
-      - name: Prepare APK package structure
+      # --- Prepare APK-like package ---
+      - name: Prepare package
         run: |
-          # Create installation directories
           mkdir -p pkg/usr/local/bin
           cp aslookup pkg/usr/local/bin/
-          # Copy the cJSON shared library (dependency) into the package
           mkdir -p pkg/usr/lib
           cp /usr/lib/libcjson.so.1 pkg/usr/lib/
 
-      - name: Create the APK package
-        # FIXED: Using manual tar/gzip steps instead of the unsupported 'apk create'
-        run: |
-          # 1. Create .PKGINFO with core metadata
+          # Metadata
           echo "pkgname = aslookup" > pkg/.PKGINFO
           echo "pkgver = $RELEASE_VERSION" >> pkg/.PKGINFO
           echo "maintainer = Niel Nielsen <nieldk@gmail.com>" >> pkg/.PKGINFO
-          echo "url = https://github.com/nieldk/aslookup" >> pkg/.PKGINFO
+          echo "url = https://codeberg.org/nieldk/aslookup" >> pkg/.PKGINFO
           echo "arch = x86_64" >> pkg/.PKGINFO
           echo "description = ASN lookup utility" >> pkg/.PKGINFO
           echo "depend = libc6, libcurl4, libcjson" >> pkg/.PKGINFO
 
-          # 2. Package the files (data.tar.gz)
           cd pkg
           tar -czf data.tar.gz usr/
+          tar -czf control.tar.gz .PKGINFO
+          tar -czf aslookup_${RELEASE_VERSION}_x86_64.apk control.tar.gz data.tar.gz
 
-          # 3. Package the metadata (control.tar.gz)
-          tar -czf control.tar.gz .PKGINFO 
-          
-          # 4. Create the final APK archive
-          tar -czf aslookup_${RELEASE_VERSION}_x86_64.apk control.tar.gz data.tar.gz 
+      # --- Upload to Codeberg Release ---
+      - name: Upload APK to Codeberg Release
+        run: |
+          RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" \
+            "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
+            | jq -r ".[] | select(.tag_name==\"${CI_COMMIT_TAG}\") | .id")
 
-          # Clean up temporary files (optional, but good practice)
-          rm control.tar.gz data.tar.gz .PKGINFO
+          if [ -z "$RELEASE_ID" ]; then
+            echo "Creating release for tag ${CI_COMMIT_TAG}"
+            RELEASE_ID=$(curl -s -X POST \
+              -H "Authorization: token $CODEBERG_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"tag_name\":\"${CI_COMMIT_TAG}\",\"name\":\"Release ${CI_COMMIT_TAG}\"}" \
+              "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
+              | jq -r ".id")
+          fi
 
-      - name: Upload .apk to release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          # Note: The file path is now relative to 'pkg/' because we did 'cd pkg'
-          files: pkg/aslookup_${{ env.RELEASE_VERSION }}_x86_64.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          echo "Uploading APK..."
+          curl -X POST \
+            -H "Authorization: token $CODEBERG_TOKEN" \
+            -F "attachment=@pkg/aslookup_${RELEASE_VERSION}_x86_64.apk" \
+            "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases/${RELEASE_ID}/assets"
