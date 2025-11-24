@@ -41,7 +41,8 @@ Options:
  -d <domain[,domain,...]> Specify one or more domain names (comma-separated)
  -f <file> Save output to a formatted text file
  --help Show this help message
- --version Show latest GitHub release version
+ --version Show installed version
+ --ghversion Show latest GitHub release version
 ```
 
 Example output:
@@ -51,7 +52,7 @@ Example output:
 
 ### Releases
 
-There are packages for Ubuntu, Arch, Alpine Linux and Windows in releases
+There are releases for Ubuntu and Arch
 Install with:
 
 Ubuntu:
@@ -64,18 +65,6 @@ Arch:
 
 ```bash
 sudo pacman -U aslookup-<version>-x86_64.pkg.tar.zst
-```
-
-Alpine:
-
-```bash
-sudo apk add --allow-untrusted aslookup_<version>_x86_64.apk
-```
-
-Windows:
-
-```bash
-unzip aslookup__win.zip
 ```
 
 ## Arch Linux Users
