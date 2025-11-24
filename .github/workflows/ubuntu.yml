@@ -36,6 +36,7 @@ jobs:
           echo "DEBUG: Final calculated RELEASE_VERSION via git is '$RELEASE_VERSION'"
           
           # Store the calculated version in a temporary file (for cross-step access)
+          # Note: This file is only needed for subsequent steps within this single job.
           echo -n "$RELEASE_VERSION" > .release_version 
 
       - name: "Build binary"
@@ -70,7 +71,8 @@ jobs:
           REPO_SLUG=$(echo "$GIT_URL" | sed -E 's/.*codeberg\.org[:/]([^\/]+\/[^.]+)(\.git)?$/\1/')
           REPO_OWNER=$(echo "$REPO_SLUG" | cut -d/ -f1)
           REPO_NAME=$(echo "$REPO_SLUG" | cut -d/ -f2)
-          RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
+          # The RELEASE_VERSION is available as an environment variable from step 1: set_version_deb
+          RELEASE_VERSION="$RELEASE_VERSION"
           RELEASE_TAG="${CI_TAG:-${CI_COMMIT_TAG}}"
           if [ -z "$RELEASE_TAG" ]; then
             RELEASE_TAG="v$RELEASE_VERSION"
@@ -121,7 +123,6 @@ jobs:
           # Ensure a fresh update before attempting to install zstd
           sudo apt-get update
           # Install core build and utility tools, including zstd
-          # Note: The log confirms zstd is installed, but we include it here for completeness.
           sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev jq curl tar zstd
           
           # Verification check: If zstd still isn't installed, fail early.
@@ -183,12 +184,10 @@ jobs:
           PKG_FILENAME="aslookup-$PKG_VER_REL-x86_64.pkg.tar.zst"
           echo "Creating final package $PKG_FILENAME using tar and zstd pipe..."
           
-          # New, robust piping command:
-          # Use 'tar -C' to change directory, and explicitly use the '-T' option in zstd 
-          # to ensure it reads from stdin reliably.
+          # Use 'tar -C' to change directory, and pipe output directly to zstd.
           tar -C "$PKG_DIR" -cf - . | zstd -T0 -c -q -f > "$PKG_FILENAME"
           
-          # Store the filename for the next step
+          # Store the filename for the next step via environment variable
           echo "PKG_FILE=$PKG_FILENAME" >> $GITHUB_ENV
 
 
@@ -201,13 +200,20 @@ jobs:
           REPO_SLUG=$(echo "$GIT_URL" | sed -E 's/.*codeberg\.org[:/]([^\/]+\/[^.]+)(\.git)?$/\1/')
           REPO_OWNER=$(echo "$REPO_SLUG" | cut -d/ -f1)
           REPO_NAME=$(echo "$REPO_SLUG" | cut -d/ -f2)
-          RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
+          
+          # FIX: Line 235 failed. Removed the unreliable file read and assign the 
+          # RELEASE_VERSION from the environment variable set in a previous step.
+          # RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
+          RELEASE_VERSION="$RELEASE_VERSION" # Line 239
+
           RELEASE_TAG="${CI_TAG:-${CI_COMMIT_TAG}}"
           if [ -z "$RELEASE_TAG" ]; then
             RELEASE_TAG="v$RELEASE_VERSION"
           fi
           AUTH_HEADER="Authorization: token ${AUTH_TOKEN}"
-          PKG_FILE_PATH=$(cat $GITHUB_ENV | grep 'PKG_FILE=' | cut -d= -f2)
+          
+          # FIX: PKG_FILE_PATH is now retrieved from the exported environment variable PKG_FILE (line 247)
+          PKG_FILE_PATH="$PKG_FILE" 
           # --------------------------------------------------------------------------
 
           echo "DEBUG: Looking for existing release ID..."
@@ -232,8 +238,3 @@ jobs:
             --data-binary "@$PKG_FILE_PATH" "$UPLOAD_URL"
           
           echo "Upload attempt finished. Look for 201 Created status code above."
-```
-
-The key fix is in step 5 of "Build binary and package manually," where I replaced the original compression command with:
-```bash
-tar -C "$PKG_DIR" -cf - . | zstd -T0 -c -q -f > "$PKG_FILENAME"
