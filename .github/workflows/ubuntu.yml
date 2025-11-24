@@ -22,15 +22,21 @@ jobs:
           sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev dpkg-dev jq curl
 
       - name: "Set version"
+        id: set_version # <-- FIX 1: Add ID to reference output
         run: |
           TAG_NAME="${CI_COMMIT_TAG:-${CI_COMMIT_REF_NAME}}"
           TAG_NAME="${TAG_NAME#v}"
-          echo "RELEASE_VERSION=$TAG_NAME" >> $GITHUB_ENV
+          # FIX 1: Write to GITHUB_OUTPUT instead of GITHUB_ENV
+          echo "RELEASE_VERSION=$TAG_NAME" >> $GITHUB_OUTPUT 
 
       - name: "Build binary"
-        run: gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -DVERSION="\"$RELEASE_VERSION\""
+        env: # <-- FIX 2: Inject variable from output
+          RELEASE_VERSION: ${{ steps.set_version.outputs.RELEASE_VERSION }}
+        run: gcc aslookup.c -o aslookup -lcurl -lcjson -lresolv -DVERSION=\"\\\"$RELEASE_VERSION\\\"\"
 
       - name: "Prepare .deb package"
+        env: # <-- FIX 3: Inject variable from output
+          RELEASE_VERSION: ${{ steps.set_version.outputs.RELEASE_VERSION }}
         run: |
           mkdir -p pkg/usr/local/bin
           cp aslookup pkg/usr/local/bin/
@@ -42,11 +48,13 @@ jobs:
           Priority: optional
           Architecture: amd64
           Maintainer: Niel Nielsen <nieldk@gmail.com>
-          Description: ASN lookup utility...
+          Description: ASN lookup utility
           EOF
           dpkg-deb --build pkg
 
       - name: "Upload Ubuntu .deb"
+        env: # Inject variable for use in the asset upload URL
+          RELEASE_VERSION: ${{ steps.set_version.outputs.RELEASE_VERSION }}
         run: |
           RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" \
             "https://codeberg.org/api/v1/repos/$CI_REPO_OWNER/$CI_REPO_NAME/releases" \
@@ -63,7 +71,6 @@ jobs:
 
           curl -s -X POST \
             -H "Authorization: token $CODEBERG_TOKEN" \
-            -H "Content-Type: application/vnd.debian.binary-package" \
+            -H "Content-Type: application/octet-stream" \
             --data-binary "@pkg.deb" \
-            "https://codeberg.org/api/v1/repos/$CI_REPO_OWNER/$CI_REPO_NAME/releases/$RELEASE_ID/assets?name=aslookup_${RELEASE_VERSION}_amd64.deb"
-
+            "https://codeberg.org/api/v1/repos/$CI_REPO_OWNER/$CI_REPO_NAME/releases/$RELEASE_ID/assets?name=aslookup-$RELEASE_VERSION-ubuntu-amd64.deb"
