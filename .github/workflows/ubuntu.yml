@@ -107,7 +107,6 @@ jobs:
 
   # ---------------- JOB 2: Arch Linux (.pkg.tar.zst) ----------------
   build-arch:
-    # Use your available Ubuntu runner (no container needed)
     runs-on: codeberg-tiny
     steps:
       - name: "Checkout code"
@@ -119,9 +118,10 @@ jobs:
           
       - name: "Install dependencies (Ubuntu tools for Arch packaging)"
         run: |
-          # FIX: Removed 'bsdtar'. The default 'tar' and 'zstd' are sufficient.
+          # Ensure a fresh update before attempting to install zstd
           sudo apt-get update
-          sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev jq curl zstd
+          # Install core build and utility tools, including zstd
+          sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev jq curl tar zstd
 
       - name: "Set version (Git-based)"
         id: set_version_arch
@@ -214,7 +214,6 @@ jobs:
           RELEASE_ID=$(curl -s -H "$AUTH_HEADER" "https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases" | jq -r "if type==\"array\" then .[] | select(.tag_name==\"$RELEASE_TAG\") | .id else empty end")
 
           if [ -z "$RELEASE_ID" ]; then
-              # This failure path should ideally not be hit since the Ubuntu job runs first.
               echo "::error::Release ID not found. Check if the 'build-ubuntu' job succeeded."
               exit 1
           fi
