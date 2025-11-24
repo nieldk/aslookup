@@ -116,12 +116,19 @@ jobs:
           # Checkout the specific commit that triggered the build
           git checkout "$CI_COMMIT_SHA" || true
           
-      - name: "Install dependencies (Ubuntu tools for Arch packaging)"
+      - name: "Install dependencies (Ubuntu tools for Arch packaging) and check zstd"
         run: |
           # Ensure a fresh update before attempting to install zstd
           sudo apt-get update
           # Install core build and utility tools, including zstd
+          # Note: The log confirms zstd is installed, but we include it here for completeness.
           sudo apt-get install -y gcc libcurl4-openssl-dev libcjson-dev jq curl tar zstd
+          
+          # Verification check: If zstd still isn't installed, fail early.
+          if ! command -v zstd &> /dev/null; then
+              echo "::error::The 'zstd' command is not available after installation. Cannot create Arch package."
+              exit 1
+          fi
 
       - name: "Set version (Git-based)"
         id: set_version_arch
@@ -172,20 +179,14 @@ jobs:
           depend = cjson
           EOF
           
-          # 5. Create the .tar.zst package using tar and zstd
+          # 5. Create the .tar.zst package using tar and zstd via pipe
           PKG_FILENAME="aslookup-$PKG_VER_REL-x86_64.pkg.tar.zst"
-          TAR_FILENAME="aslookup-$PKG_VER_REL-x86_64.pkg.tar"
-          echo "Creating temporary .tar file $TAR_FILENAME..."
+          echo "Creating final package $PKG_FILENAME using tar and zstd pipe..."
           
-          # Create the uncompressed tar archive using standard 'tar' command
-          (cd "$PKG_DIR" && tar -cf "../$TAR_FILENAME" .)
-          
-          # Compress the tar file into the final .zst format
-          echo "Compressing $TAR_FILENAME to $PKG_FILENAME..."
-          zstd -q -f -o "$PKG_FILENAME" "$TAR_FILENAME"
-          
-          # Clean up the temporary tar file
-          rm "$TAR_FILENAME"
+          # New, robust piping command:
+          # Use 'tar -C' to change directory, and explicitly use the '-T' option in zstd 
+          # to ensure it reads from stdin reliably.
+          tar -C "$PKG_DIR" -cf - . | zstd -T0 -c -q -f > "$PKG_FILENAME"
           
           # Store the filename for the next step
           echo "PKG_FILE=$PKG_FILENAME" >> $GITHUB_ENV
@@ -224,6 +225,15 @@ jobs:
           UPLOAD_URL="https://codeberg.org/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$ASSET_NAME"
           
           echo "Attempting to upload file '$PKG_FILE_PATH' to release ID $RELEASE_ID..."
-          curl -v -X POST -H "$AUTH_HEADER" -H "Content-Type: application/octet-stream" --data-binary "@$PKG_FILE_PATH" "$UPLOAD_URL"
+          # Combining headers and using the standard $AUTH_HEADER variable
+          curl -v -X POST \
+            -H "$AUTH_HEADER" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@$PKG_FILE_PATH" "$UPLOAD_URL"
           
           echo "Upload attempt finished. Look for 201 Created status code above."
+```
+
+The key fix is in step 5 of "Build binary and package manually," where I replaced the original compression command with:
+```bash
+tar -C "$PKG_DIR" -cf - . | zstd -T0 -c -q -f > "$PKG_FILENAME"
