@@ -8,14 +8,15 @@ on:
 jobs:
   # ---------------- Ubuntu (.deb) ----------------
   build-ubuntu:
-    # Changed to an available runner label
     runs-on: codeberg-tiny
     steps:
       - name: "Checkout code"
         run: |
-          # Use Gitea CI variables for the branch/tag name
-          TAG_OR_MAIN="${CI_TAG:-${CI_COMMIT_REF:-main}}"
-          git clone --depth 1 --branch "$TAG_OR_MAIN" https://codeberg.org/nieldk/aslookup.git .
+          # Clone the full repository history
+          git clone https://codeberg.org/nieldk/aslookup.git .
+          # FIX 1: Checkout the specific commit that triggered the build.
+          # We must assume the Gitea/Forgejo variable CI_COMMIT_SHA is set.
+          git checkout "$CI_COMMIT_SHA" || true
 
       - name: "Install dependencies"
         run: |
@@ -24,19 +25,23 @@ jobs:
 
       - name: "Set version"
         run: |
-          # FIX: Use Gitea CI variables CI_TAG or CI_COMMIT_REF
-          TAG_NAME="${CI_TAG:-${CI_COMMIT_REF}}"
-          
-          # Fallback to CI_COMMIT_REF_NAME for robustness, though it failed earlier
+          # FIX 2: Get the version directly from Git using 'git describe'
+          # If on a tag, this returns the tag name (e.g., v1.0.0).
+          TAG_NAME=$(git describe --tags --abbrev=0 2>/dev/null)
+
+          # Fallback: If no tag is found, use a short commit hash for a version
           if [ -z "$TAG_NAME" ]; then
-            TAG_NAME="${CI_COMMIT_REF_NAME}"
+            TAG_NAME=$(git rev-parse --short HEAD)
           fi
 
           # Strip leading 'v'
-          TAG_NAME="${TAG_NAME#v}"
+          RELEASE_VERSION="${TAG_NAME#v}"
           
-          # Store the calculated version in a temporary file (no extra characters/newlines)
-          echo -n "$TAG_NAME" > .release_version 
+          # Debug: Will show the exact version being used (e.g., 1.0.0 or c837d)
+          echo "DEBUG: Final calculated RELEASE_VERSION via git is '$RELEASE_VERSION'"
+          
+          # Store the calculated version in a temporary file
+          echo -n "$RELEASE_VERSION" > .release_version 
 
       - name: "Build binary"
         run: |
@@ -49,7 +54,7 @@ jobs:
           # Retrieve the version from the file and trim any whitespace/newlines
           RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
           
-          # Use the version variable, which is now guaranteed to be set if CI variables were present
+          # $RELEASE_VERSION is now populated from the local Git repo metadata
           mkdir -p pkg/usr/local/bin
           cp aslookup pkg/usr/local/bin/
           mkdir -p pkg/DEBIAN
@@ -69,8 +74,8 @@ jobs:
           # Retrieve the version from the file and trim any whitespace/newlines
           RELEASE_VERSION=$(cat .release_version | tr -d '\n\r')
           
-          # Use CI_TAG here for the API call to find the release
-          RELEASE_TAG="${CI_TAG:-${CI_COMMIT_TAG}}"
+          # Use CI_COMMIT_TAG as the reference for the release tag, with a fallback
+          RELEASE_TAG="${CI_COMMIT_TAG:-v$RELEASE_VERSION}"
 
           RELEASE_ID=$(curl -s -H "Authorization: token $CODEBERG_TOKEN" \
             "https://codeberg.org/api/v1/repos/$CI_REPO_OWNER/$CI_REPO_NAME/releases" \
