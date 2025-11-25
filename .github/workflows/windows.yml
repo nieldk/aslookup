@@ -18,15 +18,15 @@ jobs:
         uses: actions/checkout@v4
 
       # --- 1. Install Core MinGW Toolchain (ABSOLUTE BARE MINIMUM) ---
-      # Only installs the core cross-compiler, which is known to work.
-      - name: Install Core MinGW Tools (Fastest possible)
+      # This is the ONLY apt install step; it provides the cross-compiler executable.
+      - name: Install Core MinGW Tools
         run: |
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
             mingw-w64 \
             gcc-mingw-w64-x86-64
 
-      # --- 2. Manually Setup Dependencies (cURL and cJSON) ---
-      # Downloads all required header/source files manually, bypassing all apt issues.
+      # --- 2. Manually Setup Dependencies (cURL and cJSON Headers/Sources) ---
+      # Downloads all required header/source files manually from GitHub, bypassing apt issues.
       - name: Download cJSON and cURL Headers
         run: |
           # 2a: Setup cJSON (Source files)
@@ -42,7 +42,7 @@ jobs:
       # --- 3. Compile the Windows Executable ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # -I. and -Icurl tell the compiler where to find cJSON.h and curl/curl.h
+          # The -I. and -Icurl flags tell the compiler where to find cJSON.h and curl/curl.h
           # We rely on the core MinGW install including the actual libcurl static library.
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
               -I. -Icurl \
