@@ -11,7 +11,7 @@ on:
 
 jobs:
   build_windows:
-    runs-on: codeberg-small 
+    runs-on: codeberg-large 
     
     steps:
       - name: Checkout Repository
