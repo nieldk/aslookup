@@ -17,26 +17,26 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install Core MinGW Toolchain (Bare Minimum) ---
-      # This installs only the core cross-compiler to save critical time.
-      - name: Install Core MinGW Tools
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
-            mingw-w64 \
-            gcc-mingw-w64-x86-64
-          
+      # --- 1. Install MinGW Toolchain using an optimized Action ---
+      # This action should be much faster than manual apt-get, bypassing the timeout.
+      - name: Setup MinGW Toolchain
+        uses: forrest-coen/setup-mingw@v1
+        with:
+          # Install the 64-bit MinGW toolchain
+          mingw-version: 'x86_64-posix-seh-rev0'
+
       # --- 2. Manually Install cJSON Source ---
-      # Downloads the small cJSON source files, bypassing the slow 'apt' package dependency.
+      # Downloads the small cJSON source files directly, avoiding slow package installs.
       - name: Download cJSON Source
         run: |
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
       # --- 3. Compile the Windows Executable ---
-      # Compiles your file (aslookup_win.c) and the downloaded cJSON.c together.
       - name: Compile aslookup_win.c for Windows
         run: |
-          # The -static flag ensures the executable is standalone.
+          # The action ensures the compiler is on the PATH, so the path prefix might not be needed.
+          # We use the full command as a fallback, and link with -static for a standalone EXE.
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
               -lcurl -lws2_32 -ldnsapi -static
 
