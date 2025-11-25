@@ -140,8 +140,8 @@ char *get_asn_from_ip(const char *ip) {
             if (p->wType == DNS_TYPE_TEXT) {
                 // The TXT record often contains multiple strings (pTxtRecord->StringArray)
                 // but the cymru response is a single field.
-                if (p->Data.pTxtRecord->StringCount > 0 && p->Data.pTxtRecord->StringArray[0]) {
-                    strncpy(txt, p->Data.pTxtRecord->StringArray[0], sizeof(txt) - 1);
+                if (p->pTxtRecord->StringCount > 0 && p->pTxtRecord->StringArray[0]) {
+                    strncpy(txt, p->pTxtRecord->StringArray[0], sizeof(txt) - 1);
                 }
 
                 // The TXT record is typically in the format: "ASN | IP prefix | CC | Registry | Allocated"
