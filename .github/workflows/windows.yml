@@ -17,17 +17,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install Core MinGW Toolchain and Build Dependencies ---
+      # --- 1. Install Core MinGW Toolchain and Build Dependencies (CRITICAL FIX: Single Line Install) ---
       - name: Install MinGW Tools and Build Dependencies
         run: |
-          # We need basic tools for compiling the third-party library
-          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
-            mingw-w64 \
-            gcc-mingw-w64-x86-64 \
-            # We need standard build tools (make, autoconf) for building libcurl
-            build-essential autoconf libtool
+          # CRITICAL FIX: All packages on a single line to prevent shell line-continuation errors.
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mingw-w64 gcc-mingw-w64-x86-64 build-essential autoconf libtool git
           
-      # --- 2. Build Libcurl from Source for MinGW (CRITICAL FIX) ---
+      # --- 2. Build Libcurl from Source for MinGW (Guaranteed Compatibility) ---
       - name: Build Static Libcurl for MinGW
         run: |
           # Define environment variables for cross-compilation
@@ -76,7 +72,7 @@ jobs:
           
           # 3b: Setup cURL Headers (Dummy files only, real headers are from the build step)
           mkdir -p mingw-include/curl
-          # CRITICAL FIXES: Create DUMMY files for all known generated/unreliable cURL headers.
+          # Create DUMMY files for all known generated/unreliable cURL headers.
           touch mingw-include/curl/system.h
           touch mingw-include/curl/header.h
           touch mingw-include/curl/websockets.h
