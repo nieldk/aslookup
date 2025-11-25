@@ -17,31 +17,41 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install Core MinGW Toolchain (ABSOLUTE BARE MINIMUM) ---
-      # This is fast and provides the essential cross-compiler executable and its system paths.
-      - name: Install Core MinGW Tools
+      # --- 1. Install MinGW and Linux cURL Headers ---
+      # We install the Linux headers to steal the files we need.
+      - name: Install Core MinGW Tools and Linux cURL Dev
         run: |
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
             mingw-w64 \
-            gcc-mingw-w64-x86-64
+            gcc-mingw-w64-x86-64 \
+            libcurl4-openssl-dev # This provides the /usr/include/curl/ directory
 
-      # --- 2. Manually Setup ONLY cJSON Dependency (cURL manual setup is removed!) ---
-      # cJSON is simple (two files) and known to work with manual download.
+      # --- 2. Manually Setup ONLY cJSON (Source files) ---
       - name: Download cJSON Source
         run: |
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
-      # --- 3. Compile the Windows Executable (FINAL COMMAND FIX) ---
+      # --- 3. FIX: Copy Linux cURL Headers into MinGW Include Path ---
+      - name: Copy cURL Headers to MinGW Directory
+        run: |
+          # MinGW expects the headers to be found inside its own directory structure
+          TARGET_DIR="/usr/x86_64-w64-mingw32/include/curl"
+          SOURCE_DIR="/usr/include/curl"
+          
+          # Create the target subdirectory
+          sudo mkdir -p "${TARGET_DIR}"
+          
+          # Copy all the .h files from the Linux package into the MinGW path
+          sudo cp -r "${SOURCE_DIR}/"*.h "${TARGET_DIR}/"
+
+      # --- 4. Compile the Windows Executable ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # The fix:
-          # -I/usr/x86_64-w64-mingw32/include forces the compiler to search the system's MinGW header path.
-          # The compiler should now find curl/curl.h and all its dependencies (system.h, urlapi.h, etc.) here.
+          # The compiler should now find <curl/curl.h> in the MinGW system path.
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -I. \
-              -I/usr/x86_64-w64-mingw32/include \
               -lcurl -lws2_32 -ldnsapi -static
 
       - name: Verify Windows Executable Size
