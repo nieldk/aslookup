@@ -24,7 +24,7 @@ jobs:
             mingw-w64 \
             gcc-mingw-w64-x86-64
 
-      # --- 2. Download Dependencies Locally (Fixing mprintf.h) ---
+      # --- 2. Download Dependencies Locally (Fixes typecheck-gcc.h) ---
       - name: Download cJSON and cURL Headers Locally
         run: |
           # 2a: Setup cJSON (Source files)
@@ -46,8 +46,9 @@ jobs:
           touch mingw-include/curl/system.h
           touch mingw-include/curl/header.h
           touch mingw-include/curl/websockets.h
-          # NEW FIX: Add the missing mprintf.h placeholder
-          touch mingw-include/curl/mprintf.h 
+          touch mingw-include/curl/mprintf.h
+          # NEW FIX: Add the missing typecheck-gcc.h placeholder
+          touch mingw-include/curl/typecheck-gcc.h
           
       # --- 3. Compile the Windows Executable (Inject Missing Definitions) ---
       - name: Compile aslookup_win.c for Windows
