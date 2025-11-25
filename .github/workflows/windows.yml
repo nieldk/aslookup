@@ -24,7 +24,7 @@ jobs:
             mingw-w64 \
             gcc-mingw-w64-x86-64
 
-      # --- 2. Download Dependencies Locally (Fixes 404, system.h, and options.h) ---
+      # --- 2. Download Dependencies Locally (The Final Fix for Corrupt/Missing Headers) ---
       - name: Download cJSON and cURL Headers Locally
         run: |
           # 2a: Setup cJSON (Source files)
@@ -33,32 +33,29 @@ jobs:
           
           # 2b: Setup cURL Headers (Local injection)
           mkdir -p mingw-include/curl
-          mkdir -p mingw-include/sys
           
-          # Download static cURL headers:
+          # Download ALL core cURL headers:
           curl -L -o mingw-include/curl/curl.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curl.h
           curl -L -o mingw-include/curl/curlver.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curlver.h
           curl -L -o mingw-include/curl/easy.h https://raw.githubusercontent.com/curl/curl/master/include/curl/easy.h
           curl -L -o mingw-include/curl/multi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/multi.h
           curl -L -o mingw-include/curl/urlapi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/urlapi.h 
-          
-          # CRITICAL FIX 1: Create a DUMMY system.h file to satisfy the #include and eliminate the 404 compilation error.
-          touch mingw-include/curl/system.h
-          
-          # CRITICAL FIX 2: Download the final missing header: options.h
           curl -L -o mingw-include/curl/options.h https://raw.githubusercontent.com/curl/curl/master/include/curl/options.h
           
-          # Download common low-level header for type definitions (e.g., curl_off_t)
-          curl -L -o mingw-include/sys/types.h https://raw.githubusercontent.com/mingw-w64/mingw-w64/master/mingw-w64-headers/include/sys/types.h
+          # CRITICAL FIX: Create DUMMY files for generated/unreliably sourced headers. 
+          # This resolves the 404 error on system.h and the final missing header.
+          touch mingw-include/curl/system.h
+          touch mingw-include/curl/header.h
           
-      # --- 3. Compile the Windows Executable ---
+      # --- 3. Compile the Windows Executable (Inject Missing Definitions) ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # -DCURL_STATICLIB and -DCURL_IS_STATIC force the cURL headers to use static definitions.
+          # -Dcurl_off_t="long long" manually defines the missing type, resolving the primary error chain.
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
               -DCURL_IS_STATIC \
+              -Dcurl_off_t="long long" \
               -I. \
               -I./mingw-include \
               -lcurl -lws2_32 -ldnsapi -static
