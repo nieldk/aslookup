@@ -1,6 +1,5 @@
 name: Build and Test
 
-# Trigger the workflow on pushes to the 'main' branch
 on:
   push:
     branches:
@@ -8,43 +7,53 @@ on:
   pull_request:
     branches:
       - main
-  # Allow running the workflow manually from the Actions tab
   workflow_dispatch:
 
 jobs:
-  build:
-    # --- IMPORTANT: Specify the Codeberg Runner Label ---
-    # Choose one of: codeberg-tiny, codeberg-small, or codeberg-medium
-    # The 'codeberg-small' runner has 2 CPU cores and 4GB RAM.
+  build_linux:
     runs-on: codeberg-small 
-    
     steps:
       - name: Checkout Repository
-        # Action to fetch your code
         uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      - name: Run Tests (Linux)
+        run: go test ./...
+      - name: Build Linux Binary
+        run: go build -o aslookup_linux ./...
 
-      # --- Example: Setup a Programming Language (e.g., Go) ---
-      # If your project uses a different language (Python, Node.js, Rust), 
-      # replace this step with the appropriate setup action.
+  build_windows:
+    runs-on: codeberg-small 
+    needs: [build_linux] # Wait for Linux build/test to pass
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
           
-      - name: Show Go Version (Optional)
-        run: go version
-        
-      - name: Get Dependencies
-        run: go mod download
+      # --- CROSS-COMPILATION STEP FOR WINDOWS ---
+      - name: Build Windows Executable
+        run: |
+          # GOOS=windows targets the Windows OS
+          # GOARCH=amd64 targets 64-bit architecture
+          GOOS=windows GOARCH=amd64 go build -o aslookup_win.exe ./...
+          
+      - name: Verify Windows Executable (Optional)
+        run: |
+          ls -l aslookup_win.exe
+          echo "Windows executable created: aslookup_win.exe"
 
-      - name: Run Tests
-        run: go test ./...
-        
-      # --- Example: Build the Application ---
-      - name: Build Application
-        run: go build -v ./...
-
-      # --- Optional: Upload Artifacts ---
-      # This step saves the built executable so you can download it later.
-      # You can upload to Codeberg using an external action, but for a 
-      # minimal workflow, skipping artifact upload is fine.
+      # --- Upload Artifact (Recommended) ---
+      # This allows you to download the .exe file from the job logs
+      - name: Upload Windows Artifact
+        # Note: You might need a Gitea-compatible action for artifact upload, 
+        # or rely on direct runner paths if available.
+        # This example uses the standard GitHub action syntax which is often compatible.
+        uses: actions/upload-artifact@v4
+        with:
+          name: aslookup-windows
+          path: aslookup_win.exe
