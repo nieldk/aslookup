@@ -26,24 +26,25 @@ jobs:
             gcc-mingw-w64-x86-64
 
       # --- 2. Manually Setup Dependencies (cURL and cJSON Headers/Sources) ---
-      # Downloads all required header/source files manually from GitHub, bypassing apt issues.
+      # Downloads all required header/source files manually, bypassing apt issues.
       - name: Download cJSON and cURL Headers
         run: |
           # 2a: Setup cJSON (Source files)
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
-          # 2b: Setup cURL (Header file only)
-          # Create expected directory structure for the header: curl/curl.h
+          # 2b: Setup cURL (Header files)
+          # Create expected directory structure for the headers: curl/
           mkdir -p curl
-          # Download the required curl header file
+          
+          # Download the required curl headers (curl.h and the newly identified curlver.h)
           curl -L -o curl/curl.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curl.h
+          curl -L -o curl/curlver.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curlver.h
           
       # --- 3. Compile the Windows Executable ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # The -I. and -Icurl flags tell the compiler where to find cJSON.h and curl/curl.h
-          # We rely on the core MinGW install including the actual libcurl static library.
+          # The -I. and -Icurl flags tell the compiler where to find cJSON.h and curl/curl.h/curlver.h
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
               -I. -Icurl \
               -lcurl -lws2_32 -ldnsapi -static
