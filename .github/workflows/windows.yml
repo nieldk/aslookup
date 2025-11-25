@@ -44,7 +44,6 @@ jobs:
           curl -L -o mingw-include/curl/options.h https://raw.githubusercontent.com/curl/curl/master/include/curl/options.h
           
           # CRITICAL FIXES: Create DUMMY files for all known generated/unreliable cURL headers.
-          # This must include system.h to pass the current error.
           touch mingw-include/curl/system.h
           touch mingw-include/curl/header.h
           touch mingw-include/curl/websockets.h
@@ -54,15 +53,13 @@ jobs:
       # --- 3. Compile the Windows Executable (FINAL COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # The compiler now searches:
-          # -I. for the cjson folder.
-          # -I./mingw-include for the curl/ headers.
-          # Fix: Compile cjson/cJSON.c with the correct path.
+          # Uses all necessary flags for MinGW cross-compilation
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
               -DCURL_IS_STATIC \
               -Dcurl_off_t="long long" \
+              -D_CRT_DECLARE_NONSTDC_NAMES \
               -I. \
               -I./mingw-include \
               -lcurl -lws2_32 -ldnsapi -static
