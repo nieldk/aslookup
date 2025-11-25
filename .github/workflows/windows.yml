@@ -1,4 +1,4 @@
-name: Build and Test
+name: Build C Windows Executable
 
 on:
   push:
@@ -10,50 +10,42 @@ on:
   workflow_dispatch:
 
 jobs:
-  build_linux:
-    runs-on: codeberg-small 
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-      - name: Run Tests (Linux)
-        run: go test ./...
-      - name: Build Linux Binary
-        run: go build -o aslookup_linux ./...
-
   build_windows:
+    # Use the standard Linux runner environment
     runs-on: codeberg-small 
-    needs: [build_linux] # Wait for Linux build/test to pass
+    
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-          
-      # --- CROSS-COMPILATION STEP FOR WINDOWS ---
-      - name: Build Windows Executable
-        run: |
-          # GOOS=windows targets the Windows OS
-          # GOARCH=amd64 targets 64-bit architecture
-          GOOS=windows GOARCH=amd64 go build -o aslookup_win.exe ./...
-          
-      - name: Verify Windows Executable (Optional)
-        run: |
-          ls -l aslookup_win.exe
-          echo "Windows executable created: aslookup_win.exe"
 
-      # --- Upload Artifact (Recommended) ---
-      # This allows you to download the .exe file from the job logs
-      - name: Upload Windows Artifact
-        # Note: You might need a Gitea-compatible action for artifact upload, 
-        # or rely on direct runner paths if available.
-        # This example uses the standard GitHub action syntax which is often compatible.
+      # --- 1. Install Dependencies for Compilation ---
+      # This step installs the required libraries (cJSON and libcurl) 
+      # and the MinGW cross-compiler toolchain via apt.
+      - name: Install MinGW and Libraries
+        run: |
+          sudo apt update
+          # Install the Mingw-w64 cross-compiler and the cross-platform development files for curl and cJSON
+          sudo apt install -y mingw-w64 gcc-mingw-w64-x86-64 libcurl4-gnutls-dev libjansson-dev
+          # Note: Codeberg runners might have cjson headers under a different package name, 
+          # you might need to test/adjust the cJSON package name if the build fails.
+
+      # --- 2. Compile the Windows Executable using the Cross-Compiler ---
+      - name: Compile aslookup-win.c for Windows
+        run: |
+          # The cross-compiler binary is named 'x86_64-w64-mingw32-gcc'
+          # We link the required Windows libraries: Ws2_32 (for Winsock) and Dnsapi (for DnsQuery)
+          # Make sure to use the exact name of your Windows-adapted C file here.
+          x86_64-w64-mingw32-gcc -o aslookup-win.exe aslookup-win.c \
+              -lcurl -lcjson \
+              -lws2_32 -ldnsapi
+
+      - name: Verify Windows Executable Size
+        run: |
+          ls -l aslookup-win.exe
+          
+      # --- 3. Upload the Windows Artifact ---
+      - name: Upload Windows Executable
         uses: actions/upload-artifact@v4
         with:
           name: aslookup-windows
-          path: aslookup_win.exe
+          path: aslookup-win.exe
