@@ -11,22 +11,24 @@ on:
 
 jobs:
   build_windows:
+    # Stick with the small runner, but optimize for speed
     runs-on: codeberg-small 
     
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install MinGW Toolchain using an optimized Action ---
-      # This action should be much faster than manual apt-get, bypassing the timeout.
-      - name: Setup MinGW Toolchain
-        uses: forrest-coen/setup-mingw@v1
-        with:
-          # Install the 64-bit MinGW toolchain
-          mingw-version: 'x86_64-posix-seh-rev0'
-
+      # --- 1. Install Core MinGW Toolchain (Bare Minimum and Fastest) ---
+      # This is the single, optimized command for the core cross-compiler.
+      - name: Install Core MinGW Tools
+        run: |
+          # Only install the core meta-package and the compiler to save time
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
+            mingw-w64 \
+            gcc-mingw-w64-x86-64
+          
       # --- 2. Manually Install cJSON Source ---
-      # Downloads the small cJSON source files directly, avoiding slow package installs.
+      # This is fast and reliable, avoiding apt package dependency issues.
       - name: Download cJSON Source
         run: |
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
@@ -35,8 +37,7 @@ jobs:
       # --- 3. Compile the Windows Executable ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # The action ensures the compiler is on the PATH, so the path prefix might not be needed.
-          # We use the full command as a fallback, and link with -static for a standalone EXE.
+          # Compile your file, the cJSON source, and link necessary Windows libraries.
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
               -lcurl -lws2_32 -ldnsapi -static
 
@@ -44,6 +45,8 @@ jobs:
         run: ls -l aslookup_win.exe
           
       - name: Upload Windows Executable
+        # Must rely on a manually cloned or Codeberg-compatible artifact upload action if the standard one fails.
+        # This will proceed even if the standard action is only partially compatible.
         uses: actions/upload-artifact@v4
         with:
           name: aslookup-windows
