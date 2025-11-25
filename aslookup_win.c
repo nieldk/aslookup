@@ -140,8 +140,10 @@ char *get_asn_from_ip(const char *ip) {
             if (p->wType == DNS_TYPE_TEXT) {
                 // The TXT record often contains multiple strings (pTxtRecord->StringArray)
                 // but the cymru response is a single field.
-                if (p->pTxtRecord->StringCount > 0 && p->pTxtRecord->StringArray[0]) {
-                    strncpy(txt, p->pTxtRecord->StringArray[0], sizeof(txt) - 1);
+                
+                // FIX: MinGW access to DNS_RECORDA structure uses Data.Txt instead of Data.pTxtRecord
+                if (p->Data.Txt.StringCount > 0 && p->Data.Txt.StringArray[0]) {
+                    strncpy(txt, p->Data.Txt.StringArray[0], sizeof(txt) - 1);
                 }
 
                 // The TXT record is typically in the format: "ASN | IP prefix | CC | Registry | Allocated"
@@ -152,8 +154,7 @@ char *get_asn_from_ip(const char *ip) {
                 return asn;
             }
         }
-    } // <--- MISSING CLOSING BRACE FOR THE 'FOR' LOOP
-    // <--- MISSING CLOSING BRACE FOR THE 'IF (DNS_STATUS)' BLOCK
+    }} // FIX: Added two missing closing braces to close the for loop and the if (dns_status) block
 
     if (pDnsRecord) {
         DnsRecordListFree(pDnsRecord, DnsFreeRecordList);
@@ -211,6 +212,7 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
         set_console_color(COLOR_RED);
         fprintf(stderr, "Failed to parse JSON.\n");
         reset_console_color();
+        cJSON_Delete(root);
         curl_easy_cleanup(curl);
         free(chunk.memory);
         return;
