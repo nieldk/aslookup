@@ -18,41 +18,40 @@ jobs:
         uses: actions/checkout@v4
 
       # --- 1. Install Core MinGW Toolchain (ABSOLUTE BARE MINIMUM) ---
-      # This is fast and provides the essential cross-compiler executable.
       - name: Install Core MinGW Tools
         run: |
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
             mingw-w64 \
             gcc-mingw-w64-x86-64
 
-      # --- 2. Download Dependencies and Inject into MinGW Path ---
-      - name: Download cJSON Source and Inject cURL Headers
+      # --- 2. Download Dependencies Locally (The Fix for 'No such file or directory') ---
+      - name: Download cJSON and cURL Headers Locally
         run: |
           # 2a: Setup cJSON (Source files)
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
-          # 2b: Setup cURL Headers (Direct injection into MinGW system path)
-          TARGET_DIR="/usr/x86_64-w64-mingw32/include/curl"
+          # 2b: Setup cURL Headers (Local injection, avoids system path issues)
+          # Create local folder structure: ./mingw-include/curl
+          mkdir -p mingw-include/curl
           
-          # Create the target subdirectory in the MinGW system path
-          sudo mkdir -p "${TARGET_DIR}"
-          
-          # Download all required curl headers directly into the MinGW path
-          # Using 'sudo' ensures permissions are correct for writing to system directory
-          sudo curl -L -o "${TARGET_DIR}/curl.h" https://raw.githubusercontent.com/curl/curl/master/include/curl/curl.h
-          sudo curl -L -o "${TARGET_DIR}/curlver.h" https://raw.githubusercontent.com/curl/curl/master/include/curl/curlver.h
-          sudo curl -L -o "${TARGET_DIR}/easy.h" https://raw.githubusercontent.com/curl/curl/master/include/curl/easy.h
-          sudo curl -L -o "${TARGET_DIR}/multi.h" https://raw.githubusercontent.com/curl/curl/master/include/curl/multi.h
-          sudo curl -L -o "${TARGET_DIR}/urlapi.h" https://raw.githubusercontent.com/curl/curl/master/include/curl/urlapi.h 
+          # Download all required curl headers into the local folder
+          curl -L -o mingw-include/curl/curl.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curl.h
+          curl -L -o mingw-include/curl/curlver.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curlver.h
+          curl -L -o mingw-include/curl/easy.h https://raw.githubusercontent.com/curl/curl/master/include/curl/easy.h
+          curl -L -o mingw-include/curl/multi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/multi.h
+          curl -L -o mingw-include/curl/urlapi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/urlapi.h 
           
       # --- 3. Compile the Windows Executable ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # The compiler will now find <curl/curl.h> in its default system path (thanks to step 2).
+          # -I./mingw-include tells the compiler where to find the local headers
+          # -DCURL_STATICLIB helps resolve linker issues with MinGW
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
               -D_WIN32_WINNT=0x0600 \
+              -DCURL_STATICLIB \
               -I. \
+              -I./mingw-include \
               -lcurl -lws2_32 -ldnsapi -static
 
       - name: Verify Windows Executable Size
