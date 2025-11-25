@@ -18,40 +18,29 @@ jobs:
         uses: actions/checkout@v4
 
       # --- 1. Install Core MinGW Toolchain (ABSOLUTE BARE MINIMUM) ---
+      # This is fast and provides the essential cross-compiler executable and its system paths.
       - name: Install Core MinGW Tools
         run: |
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
             mingw-w64 \
             gcc-mingw-w64-x86-64
 
-      # --- 2. Manually Setup Dependencies (cURL and cJSON Headers/Sources) ---
-      - name: Download cJSON and cURL Headers
+      # --- 2. Manually Setup ONLY cJSON Dependency (cURL manual setup is removed!) ---
+      # cJSON is simple (two files) and known to work with manual download.
+      - name: Download cJSON Source
         run: |
-          # 2a: Setup cJSON (Source files)
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
-          # 2b: Setup cURL (Header files)
-          mkdir -p curl
-          
-          # Download all required curl headers
-          curl -L -o curl/curl.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curl.h
-          curl -L -o curl/curlver.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curlver.h
-          curl -L -o curl/easy.h https://raw.githubusercontent.com/curl/curl/master/include/curl/easy.h
-          curl -L -o curl/multi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/multi.h
-          
-          # FINAL FIX: Download the missing system.h file into the curl/ directory
-          # The file is a crucial system config file and needs to be manually sourced.
-          # We use the include root and place it in the curl directory.
-          curl -L -o curl/system.h https://raw.githubusercontent.com/curl/curl/master/include/system.h
-          
-      # --- 3. Compile the Windows Executable (FINAL COMMAND) ---
+      # --- 3. Compile the Windows Executable (FINAL COMMAND FIX) ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # Inject basic Windows environment flag and include MinGW system path
+          # The fix:
+          # -I/usr/x86_64-w64-mingw32/include forces the compiler to search the system's MinGW header path.
+          # The compiler should now find curl/curl.h and all its dependencies (system.h, urlapi.h, etc.) here.
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
               -D_WIN32_WINNT=0x0600 \
-              -I. -Icurl \
+              -I. \
               -I/usr/x86_64-w64-mingw32/include \
               -lcurl -lws2_32 -ldnsapi -static
 
