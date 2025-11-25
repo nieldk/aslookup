@@ -17,27 +17,28 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install Core MinGW Toolchain and Build Dependencies (CRITICAL FIX: Single Line Install) ---
+      # --- 1. Install Core MinGW Toolchain and Build Dependencies ---
       - name: Install MinGW Tools and Build Dependencies
         run: |
           # CRITICAL FIX: All packages on a single line to prevent shell line-continuation errors.
-          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mingw-w64 gcc-mingw-w64-x86-64 build-essential autoconf libtool git
+          # Added 'unzip' for extracting the source archive.
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mingw-w64 gcc-mingw-w64-x86-64 build-essential autoconf libtool unzip
           
-      # --- 2. Build Libcurl from Source for MinGW (Guaranteed Compatibility) ---
-      - name: Build Static Libcurl for MinGW
+      # --- 2. Build Libcurl from Source for MinGW (Bypass Timeout) ---
+      - name: Download and Build Static Libcurl for MinGW
         run: |
+          # CRITICAL FIX: Download the source archive instead of cloning the repository.
+          # This is much faster and more reliable on small runners.
+          curl -L -o curl.zip https://github.com/curl/curl/archive/refs/tags/curl-8_4_0.zip
+          unzip curl.zip
+          cd curl-curl-8_4_0 # The directory name after unzipping
+
           # Define environment variables for cross-compilation
           export TARGET_HOST=x86_64-w64-mingw32
           export CFLAGS="-m64"
           
-          # Clone libcurl source
-          git clone https://github.com/curl/curl.git
-          cd curl
-          
-          # Run autoconf to generate the configure script
-          ./buildconf
-          
           # Configure for static cross-compilation
+          # We no longer need './buildconf' as the release archive already contains the configure script.
           ./configure \
               --host=$TARGET_HOST \
               --build=x86_64-pc-linux-gnu \
@@ -55,15 +56,15 @@ jobs:
           make install
           
           # Move the library and headers to the expected locations
-          mkdir -p lib
+          mkdir -p $GITHUB_WORKSPACE/lib
           cp $GITHUB_WORKSPACE/curl_build/lib/libcurl.a $GITHUB_WORKSPACE/lib/
           
           # Headers are handled in the next step, but copy them too just in case
-          mkdir -p mingw-include
+          mkdir -p $GITHUB_WORKSPACE/mingw-include
           cp -r $GITHUB_WORKSPACE/curl_build/include/* $GITHUB_WORKSPACE/mingw-include/
 
       # --- 3. Manually Download and Setup Dependencies (Minimal Cleanup) ---
-      - name: Download cJSON and cURL Headers Locally (for CJSON and dummy headers)
+      - name: Download cJSON and cURL Headers Locally
         run: |
           # 3a: Setup cJSON (Source files) - Fixes 'cjson/cJSON.h: No such file'
           mkdir -p cjson
