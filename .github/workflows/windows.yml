@@ -17,17 +17,16 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install Core MinGW Toolchain and Cross-Libraries (SYNTAX FIX) ---
+      # --- 1. Install Core MinGW Toolchain and Cross-Libraries (CRITICAL FIX: New package name) ---
       - name: Install Core MinGW Tools and Cross-Libraries
         run: |
-          # CRITICAL FIX: Put all packages on a single line to avoid line continuation errors
-          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mingw-w64 gcc-mingw-w64-x86-64 libcurl4-gnutls-dev-mingw-w64-x86-64 libcjson-dev
+          # CRITICAL FIX: Using the standardized package name for the libcurl cross-development files.
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mingw-w64 gcc-mingw-w64-x86-64 mingw-w64-x86-64-dev-curl
           
-      # --- 2. Download Dependencies Locally (Headers and Placeholders) ---
+      # --- 2. Download Dependencies Locally (All Headers and Placeholders) ---
       - name: Download cJSON and cURL Headers Locally
-        # ... (rest of this step is unchanged)
         run: |
-          # 2a: Setup cJSON (Source files) - Ensures cJSON.c/h are in the expected path
+          # 2a: Setup cJSON (Source files) - Fixes 'cjson/cJSON.h: No such file'
           mkdir -p cjson
           curl -L -o cjson/cJSON.c https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -L -o cjson/cJSON.h https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
