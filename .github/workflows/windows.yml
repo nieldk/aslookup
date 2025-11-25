@@ -24,7 +24,7 @@ jobs:
             mingw-w64 \
             gcc-mingw-w64-x86-64
 
-      # --- 2. Download Dependencies Locally (Final Complete Set) ---
+      # --- 2. Download Dependencies Locally (Fixing mprintf.h) ---
       - name: Download cJSON and cURL Headers Locally
         run: |
           # 2a: Setup cJSON (Source files)
@@ -45,13 +45,14 @@ jobs:
           # CRITICAL FIXES: Create DUMMY files for generated/unreliably sourced headers.
           touch mingw-include/curl/system.h
           touch mingw-include/curl/header.h
-          # NEW FIX: Add the missing websockets.h placeholder
           touch mingw-include/curl/websockets.h
+          # NEW FIX: Add the missing mprintf.h placeholder
+          touch mingw-include/curl/mprintf.h 
           
       # --- 3. Compile the Windows Executable (Inject Missing Definitions) ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # -Dcurl_off_t="long long" manually defines the missing type.
+          # Manually defines curl_off_t and forces static library flags.
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
