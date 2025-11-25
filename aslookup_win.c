@@ -141,7 +141,8 @@ char *get_asn_from_ip(const char *ip) {
                 // The TXT record often contains multiple strings (pTxtRecord->StringArray)
                 // but the cymru response is a single field.
                 
-                // FIX: MinGW structure member names corrected to dwStringCount and pStringArray.
+                // FIX: Corrected structure member access for MinGW:
+                // StringCount -> dwStringCount and StringArray -> pStringArray
                 if (p->Data.Txt.dwStringCount > 0 && p->Data.Txt.pStringArray[0]) {
                     strncpy(txt, p->Data.Txt.pStringArray[0], sizeof(txt) - 1);
                 }
@@ -154,7 +155,7 @@ char *get_asn_from_ip(const char *ip) {
                 return asn;
             }
         }
-    }} // FIX: Added two missing closing braces to close the for loop and the if (dns_status) block
+    } // FIX: Removed the extra closing brace that caused the syntax error.
 
     if (pDnsRecord) {
         DnsRecordListFree(pDnsRecord, DnsFreeRecordList);
