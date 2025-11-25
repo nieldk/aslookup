@@ -17,27 +17,29 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install MinGW Toolchain and Core Cross-Libs ---
-      # Using simpler, less specific package names for greater compatibility.
-      - name: Install MinGW Toolchain and Core Cross-Libs
+      # --- 1. Install Core MinGW Toolchain ---
+      # This is the bare minimum required for cross-compilation.
+      - name: Install Core MinGW Tools
         run: |
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
             mingw-w64 \
-            gcc-mingw-w64-x86-64 \
-            # Generic MinGW cross-dev package for cURL
-            libcurl-mingw-w64-dev \
-            # Trying a simpler cJSON dev package name, or relying on base MinGW libs
-            # We remove the libcjson-mingw-w64-dev line as it failed
-            # If the next step fails on cJSON.h, we will need to manually download it.
-            
-      # --- 2. Compile the Windows Executable using the Cross-Compiler ---
-      - name: Compile aslookup_win.c for Windows
-        # NOTE: If cJSON.h is not found after this change, we will need to install it manually.
+            gcc-mingw-w64-x86-64
+          
+      # --- 2. Manually Install cJSON Source (Bypassing Apt Issues) ---
+      # We download the source code for cJSON since its apt package is missing.
+      - name: Install cJSON Source
         run: |
-          # Use the MinGW cross-compiler binary
-          x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c \
-              -lcurl -lcjson \
-              -lws2_32 -ldnsapi
+          curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
+          curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
+          
+      # --- 3. Compile the Windows Executable using the Cross-Compiler ---
+      - name: Compile aslookup_win.c for Windows
+        run: |
+          # We compile your file (aslookup_win.c) and the cJSON source file (cJSON.c) together.
+          # -static: Links static libraries (like cJSON) directly into the executable.
+          # -lcurl: Assumes the necessary curl libraries are in the MinGW path (often true after mingw-w64 install).
+          x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
+              -lcurl -lws2_32 -ldnsapi -static
 
       - name: Verify Windows Executable Size
         run: ls -l aslookup_win.exe
