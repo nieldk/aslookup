@@ -11,38 +11,39 @@ on:
 
 jobs:
   build_windows:
-    # Stick with the 'codeberg-small' runner
     runs-on: codeberg-small 
     
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install MinGW and Libraries (Optimized for Speed) ---
-      # This combines the update and install to a single, faster operation 
-      # and uses the full package names to avoid searching.
-      - name: Install MinGW and Libraries
-        # Use apt-get and --no-install-recommends to keep the install lean
+      # --- 1. Install MinGW Cross-Development Libraries ---
+      # This installs the compilers and the header/library files 
+      # specifically targeting the Windows environment (mingw-w64).
+      - name: Install MinGW Toolchain and Cross-Libs
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             gcc-mingw-w64-x86-64 \
-            libcurl4-gnutls-dev \
-            libcjson-dev
+            # MinGW-specific packages for libcurl and libcjson
+            mingw-w64-tools \
+            libcurl4-mingw-w64-dev \
+            libcjson-mingw-w64-dev
           
       # --- 2. Compile the Windows Executable using the Cross-Compiler ---
-      - name: Compile aslookup_win.c for Windows
+      - name: Compile aslookup-win.c for Windows
         run: |
           # The cross-compiler binary: x86_64-w64-mingw32-gcc
-          x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c \
+          # NOTE: The compiler automatically finds the headers from the mingw-w64-dev packages.
+          x86_64-w64-mingw32-gcc -o aslookup-win.exe aslookup-win.c \
               -lcurl -lcjson \
               -lws2_32 -ldnsapi
 
       - name: Verify Windows Executable Size
-        run: ls -l aslookup_win.exe
+        run: ls -l aslookup-win.exe
           
       - name: Upload Windows Executable
         uses: actions/upload-artifact@v4
         with:
           name: aslookup-windows
-          path: aslookup_win.exe
+          path: aslookup-win.exe
