@@ -11,41 +11,38 @@ on:
 
 jobs:
   build_windows:
-    # Use the standard Linux runner environment
+    # Stick with the 'codeberg-small' runner
     runs-on: codeberg-small 
     
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install Dependencies for Compilation ---
-      # This step installs the required libraries (cJSON and libcurl) 
-      # and the MinGW cross-compiler toolchain via apt.
+      # --- 1. Install MinGW and Libraries (Optimized for Speed) ---
+      # This combines the update and install to a single, faster operation 
+      # and uses the full package names to avoid searching.
       - name: Install MinGW and Libraries
+        # Use apt-get and --no-install-recommends to keep the install lean
         run: |
-          sudo apt update
-          # Install the Mingw-w64 cross-compiler and the cross-platform development files for curl and cJSON
-          sudo apt install -y mingw-w64 gcc-mingw-w64-x86-64 libcurl4-gnutls-dev libjansson-dev
-          # Note: Codeberg runners might have cjson headers under a different package name, 
-          # you might need to test/adjust the cJSON package name if the build fails.
-
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc-mingw-w64-x86-64 \
+            libcurl4-gnutls-dev \
+            libcjson-dev
+          
       # --- 2. Compile the Windows Executable using the Cross-Compiler ---
-      - name: Compile aslookup-win.c for Windows
+      - name: Compile aslookup_win.c for Windows
         run: |
-          # The cross-compiler binary is named 'x86_64-w64-mingw32-gcc'
-          # We link the required Windows libraries: Ws2_32 (for Winsock) and Dnsapi (for DnsQuery)
-          # Make sure to use the exact name of your Windows-adapted C file here.
-          x86_64-w64-mingw32-gcc -o aslookup-win.exe aslookup-win.c \
+          # The cross-compiler binary: x86_64-w64-mingw32-gcc
+          x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c \
               -lcurl -lcjson \
               -lws2_32 -ldnsapi
 
       - name: Verify Windows Executable Size
-        run: |
-          ls -l aslookup-win.exe
+        run: ls -l aslookup_win.exe
           
-      # --- 3. Upload the Windows Artifact ---
       - name: Upload Windows Executable
         uses: actions/upload-artifact@v4
         with:
           name: aslookup-windows
-          path: aslookup-win.exe
+          path: aslookup_win.exe
