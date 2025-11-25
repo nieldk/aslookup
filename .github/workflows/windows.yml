@@ -11,33 +11,39 @@ on:
 
 jobs:
   build_windows:
-    # Stick with the small runner, but optimize for speed
     runs-on: codeberg-small 
     
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install Core MinGW Toolchain (Bare Minimum and Fastest) ---
+      # --- 1. Install Core MinGW Toolchain ---
       # This is the single, optimized command for the core cross-compiler.
       - name: Install Core MinGW Tools
         run: |
-          # Only install the core meta-package and the compiler to save time
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
             mingw-w64 \
-            gcc-mingw-w64-x86-64
+            gcc-mingw-w64-x86-64 \
+            # Explicitly install the libcurl headers for the base Linux environment.
+            # We hope this is enough for the cross-compiler to find the necessary files.
+            libcurl4-openssl-dev
           
-      # --- 2. Manually Install cJSON Source ---
-      # This is fast and reliable, avoiding apt package dependency issues.
-      - name: Download cJSON Source
+      # --- 2. Manually Install cJSON Source and create curl directory ---
+      # Downloads the small cJSON source files directly.
+      - name: Download cJSON Source and Setup Curl Header Directory
         run: |
+          # Download cJSON source
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
+          
+          # Create the expected directory for the curl header
+          mkdir -p curl
           
       # --- 3. Compile the Windows Executable ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # Compile your file, the cJSON source, and link necessary Windows libraries.
+          # The -I. flag tells the compiler to look in the current directory for headers (like cJSON.h).
+          # We need to manually link the ws2_32 and gdi32 libraries for the Mingw-w64 curl.
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
               -lcurl -lws2_32 -ldnsapi -static
 
@@ -45,8 +51,6 @@ jobs:
         run: ls -l aslookup_win.exe
           
       - name: Upload Windows Executable
-        # Must rely on a manually cloned or Codeberg-compatible artifact upload action if the standard one fails.
-        # This will proceed even if the standard action is only partially compatible.
         uses: actions/upload-artifact@v4
         with:
           name: aslookup-windows
