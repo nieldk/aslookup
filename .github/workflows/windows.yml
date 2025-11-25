@@ -17,38 +17,39 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install MinGW and Linux cURL Headers ---
-      # We install the Linux headers to steal the files we need.
-      - name: Install Core MinGW Tools and Linux cURL Dev
+      # --- 1. Install Core MinGW Toolchain (ABSOLUTE BARE MINIMUM) ---
+      # This is fast and provides the essential cross-compiler executable.
+      - name: Install Core MinGW Tools
         run: |
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
             mingw-w64 \
-            gcc-mingw-w64-x86-64 \
-            libcurl4-openssl-dev # This provides the /usr/include/curl/ directory
+            gcc-mingw-w64-x86-64
 
-      # --- 2. Manually Setup ONLY cJSON (Source files) ---
-      - name: Download cJSON Source
+      # --- 2. Download Dependencies and Inject into MinGW Path ---
+      - name: Download cJSON Source and Inject cURL Headers
         run: |
+          # 2a: Setup cJSON (Source files)
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
-      # --- 3. FIX: Copy Linux cURL Headers into MinGW Include Path ---
-      - name: Copy cURL Headers to MinGW Directory
-        run: |
-          # MinGW expects the headers to be found inside its own directory structure
+          # 2b: Setup cURL Headers (Direct injection into MinGW system path)
           TARGET_DIR="/usr/x86_64-w64-mingw32/include/curl"
-          SOURCE_DIR="/usr/include/curl"
           
-          # Create the target subdirectory
+          # Create the target subdirectory in the MinGW system path
           sudo mkdir -p "${TARGET_DIR}"
           
-          # Copy all the .h files from the Linux package into the MinGW path
-          sudo cp -r "${SOURCE_DIR}/"*.h "${TARGET_DIR}/"
-
-      # --- 4. Compile the Windows Executable ---
+          # Download all required curl headers directly into the MinGW path
+          # Using 'sudo' ensures permissions are correct for writing to system directory
+          sudo curl -L -o "${TARGET_DIR}/curl.h" https://raw.githubusercontent.com/curl/curl/master/include/curl/curl.h
+          sudo curl -L -o "${TARGET_DIR}/curlver.h" https://raw.githubusercontent.com/curl/curl/master/include/curl/curlver.h
+          sudo curl -L -o "${TARGET_DIR}/easy.h" https://raw.githubusercontent.com/curl/curl/master/include/curl/easy.h
+          sudo curl -L -o "${TARGET_DIR}/multi.h" https://raw.githubusercontent.com/curl/curl/master/include/curl/multi.h
+          sudo curl -L -o "${TARGET_DIR}/urlapi.h" https://raw.githubusercontent.com/curl/curl/master/include/curl/urlapi.h 
+          
+      # --- 3. Compile the Windows Executable ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # The compiler should now find <curl/curl.h> in the MinGW system path.
+          # The compiler will now find <curl/curl.h> in its default system path (thanks to step 2).
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -I. \
