@@ -17,14 +17,15 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install MinGW Toolchain and Cross-Libs (Fixed) ---
-      # Removed the invalid 'mingw-w64-tools' package.
-      # This step installs the core cross-compiler and the cross-development headers for the C dependencies.
+      # --- 1. Install MinGW Toolchain and Cross-Libs (Most Robust Method) ---
+      # This explicitly installs the core mingw-w64 package first.
       - name: Install MinGW Toolchain and Cross-Libs
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            # Core GCC cross-compiler for Windows 64-bit
+            # Install the meta-package for MinGW environment
+            mingw-w64 \
+            # Explicitly install the GCC cross-compiler for Windows 64-bit
             gcc-mingw-w64-x86-64 \
             # Cross-development libraries for libcurl and libcjson
             libcurl4-mingw-w64-dev \
@@ -32,8 +33,9 @@ jobs:
           
       # --- 2. Compile the Windows Executable using the Cross-Compiler ---
       - name: Compile aslookup-win.c for Windows
+        # Ensure 'aslookup-win.c' is the file name containing the Windows code!
         run: |
-          # Use the MinGW cross-compiler
+          # Use the MinGW cross-compiler binary
           x86_64-w64-mingw32-gcc -o aslookup-win.exe aslookup-win.c \
               -lcurl -lcjson \
               -lws2_32 -ldnsapi
