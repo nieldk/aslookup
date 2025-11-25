@@ -141,9 +141,9 @@ char *get_asn_from_ip(const char *ip) {
                 // The TXT record often contains multiple strings (pTxtRecord->StringArray)
                 // but the cymru response is a single field.
                 
-                // FIX A: MinGW access to DNS_RECORDA structure uses Data.Txt instead of Data.pTxtRecord
-                if (p->Data.Txt.StringCount > 0 && p->Data.Txt.StringArray[0]) {
-                    strncpy(txt, p->Data.Txt.StringArray[0], sizeof(txt) - 1);
+                // FIX: MinGW structure member names corrected to dwStringCount and pStringArray.
+                if (p->Data.Txt.dwStringCount > 0 && p->Data.Txt.pStringArray[0]) {
+                    strncpy(txt, p->Data.Txt.pStringArray[0], sizeof(txt) - 1);
                 }
 
                 // The TXT record is typically in the format: "ASN | IP prefix | CC | Registry | Allocated"
@@ -154,7 +154,7 @@ char *get_asn_from_ip(const char *ip) {
                 return asn;
             }
         }
-    }} // FIX B: Added two missing closing braces to close the for loop and the if (dns_status) block
+    }} // FIX: Added two missing closing braces to close the for loop and the if (dns_status) block
 
     if (pDnsRecord) {
         DnsRecordListFree(pDnsRecord, DnsFreeRecordList);
