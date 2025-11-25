@@ -17,23 +17,23 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install Core MinGW Toolchain and Cross-Libraries (FINAL ATTEMPT) ---
-      - name: Install Core MinGW Tools and Cross-Libraries
+      # --- 1. Install Core MinGW Toolchain (Bare Minimum) ---
+      - name: Install Core MinGW Tools
         run: |
-          # CRITICAL FIX: Trying the generic package name which sometimes includes cross-libraries.
-          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mingw-w64 gcc-mingw-w64-x86-64 libcurl4-gnutls-dev
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
+            mingw-w64 \
+            gcc-mingw-w64-x86-64
           
-      # --- 2. Download Dependencies Locally (All Headers and Placeholders) ---
-      - name: Download cJSON and cURL Headers Locally
+      # --- 2. Manually Download and Setup Dependencies ---
+      - name: Download cJSON, cURL Headers, and Static Libcurl
         run: |
-          # 2a: Setup cJSON (Source files) - Fixes 'cjson/cJSON.h: No such file'
+          # 2a: Setup cJSON (Source files)
           mkdir -p cjson
           curl -L -o cjson/cJSON.c https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -L -o cjson/cJSON.h https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
           # 2b: Setup cURL Headers (Local injection)
           mkdir -p mingw-include/curl
-          
           # Download ALL core cURL headers:
           curl -L -o mingw-include/curl/curl.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curl.h
           curl -L -o mingw-include/curl/curlver.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curlver.h
@@ -41,18 +41,24 @@ jobs:
           curl -L -o mingw-include/curl/multi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/multi.h
           curl -L -o mingw-include/curl/urlapi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/urlapi.h 
           curl -L -o mingw-include/curl/options.h https://raw.githubusercontent.com/curl/curl/master/include/curl/options.h
-          
-          # CRITICAL FIXES: Create DUMMY files for all known generated/unreliable cURL headers.
+          # Create DUMMY files for all known generated/unreliable cURL headers.
           touch mingw-include/curl/system.h
           touch mingw-include/curl/header.h
           touch mingw-include/curl/websockets.h
           touch mingw-include/curl/mprintf.h
           touch mingw-include/curl/typecheck-gcc.h
           
+          # CRITICAL FIX: Manually download a MinGW-compatible static libcurl library (libcurl.a)
+          # We use a known-good source for MinGW-w64 static builds.
+          mkdir -p lib
+          # Download the 64-bit static library (v8.7.1, OpenSSL-based)
+          curl -L -o lib/libcurl.a https://github.com/nieldk/misc-binaries/raw/main/libcurl_x86_64_static_8_7_1.a
+
       # --- 3. Compile the Windows Executable (FINAL COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
           # Uses all necessary flags for MinGW cross-compilation
+          # CRITICAL FIX: Link directly to the downloaded lib/libcurl.a file
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
@@ -61,7 +67,7 @@ jobs:
               -D_CRT_DECLARE_NONSTDC_NAMES \
               -I. \
               -I./mingw-include \
-              -lcurl -lws2_32 -ldnsapi -static
+              ./lib/libcurl.a -lws2_32 -ldnsapi -static
 
       - name: Verify Windows Executable Size
         run: ls -l aslookup_win.exe
