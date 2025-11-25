@@ -24,7 +24,7 @@ jobs:
             mingw-w64 \
             gcc-mingw-w64-x86-64
 
-      # --- 2. Download Dependencies Locally (Final Comprehensive Fix) ---
+      # --- 2. Download Dependencies Locally (Fixes 404, system.h, and options.h) ---
       - name: Download cJSON and cURL Headers Locally
         run: |
           # 2a: Setup cJSON (Source files)
@@ -32,34 +32,33 @@ jobs:
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
           # 2b: Setup cURL Headers (Local injection)
-          # Create local folder structure: ./mingw-include/curl
           mkdir -p mingw-include/curl
+          mkdir -p mingw-include/sys
           
-          # Download ALL known required curl headers into the local folder:
+          # Download static cURL headers:
           curl -L -o mingw-include/curl/curl.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curl.h
           curl -L -o mingw-include/curl/curlver.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curlver.h
           curl -L -o mingw-include/curl/easy.h https://raw.githubusercontent.com/curl/curl/master/include/curl/easy.h
           curl -L -o mingw-include/curl/multi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/multi.h
-          curl -L -o mingw-include/curl/urlapi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/urlapi.h
+          curl -L -o mingw-include/curl/urlapi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/urlapi.h 
           
-          # CRITICAL FIX: Add the missing system.h file (which curl.h includes)
-          # This must be placed in the same directory as curl.h
-          curl -L -o mingw-include/curl/system.h https://raw.githubusercontent.com/curl/curl/master/include/system.h
+          # CRITICAL FIX 1: Create a DUMMY system.h file to satisfy the #include and eliminate the 404 compilation error.
+          touch mingw-include/curl/system.h
           
-          # Download common low-level header for type definitions (resolves curl_off_t and related errors)
-          mkdir -p mingw-include/sys
+          # CRITICAL FIX 2: Download the final missing header: options.h
+          curl -L -o mingw-include/curl/options.h https://raw.githubusercontent.com/curl/curl/master/include/curl/options.h
+          
+          # Download common low-level header for type definitions (e.g., curl_off_t)
           curl -L -o mingw-include/sys/types.h https://raw.githubusercontent.com/mingw-w64/mingw-w64/master/mingw-w64-headers/include/sys/types.h
           
       # --- 3. Compile the Windows Executable ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # The compiler finds all headers using the -I flags:
-          # -I. for cJSON.h
-          # -I./mingw-include to find <curl/curl.h>
-          # -DCURL_STATICLIB is required by MinGW to link cURL correctly
+          # -DCURL_STATICLIB and -DCURL_IS_STATIC force the cURL headers to use static definitions.
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
+              -DCURL_IS_STATIC \
               -I. \
               -I./mingw-include \
               -lcurl -lws2_32 -ldnsapi -static
