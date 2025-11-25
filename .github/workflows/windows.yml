@@ -1,0 +1,50 @@
+name: Build and Test
+
+# Trigger the workflow on pushes to the 'main' branch
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  # Allow running the workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+    # --- IMPORTANT: Specify the Codeberg Runner Label ---
+    # Choose one of: codeberg-tiny, codeberg-small, or codeberg-medium
+    # The 'codeberg-small' runner has 2 CPU cores and 4GB RAM.
+    runs-on: codeberg-small 
+    
+    steps:
+      - name: Checkout Repository
+        # Action to fetch your code
+        uses: actions/checkout@v4
+
+      # --- Example: Setup a Programming Language (e.g., Go) ---
+      # If your project uses a different language (Python, Node.js, Rust), 
+      # replace this step with the appropriate setup action.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          
+      - name: Show Go Version (Optional)
+        run: go version
+        
+      - name: Get Dependencies
+        run: go mod download
+
+      - name: Run Tests
+        run: go test ./...
+        
+      # --- Example: Build the Application ---
+      - name: Build Application
+        run: go build -v ./...
+
+      # --- Optional: Upload Artifacts ---
+      # This step saves the built executable so you can download it later.
+      # You can upload to Codeberg using an external action, but for a 
+      # minimal workflow, skipping artifact upload is fine.
