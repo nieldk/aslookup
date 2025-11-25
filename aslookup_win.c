@@ -117,14 +117,14 @@ char *get_asn_from_ip(const char *ip) {
     int a, b, c, d;
     // Perform standard IP validation
     if (sscanf(ip, "%d.%d.%d.%d", &a, &b, &c, &d) != 4) return NULL;
-    
+
     // Construct the reverse DNS query: d.c.b.a.origin.asn.cymru.com
     char query[256];
     snprintf(query, sizeof(query), "%d.%d.%d.%d.origin.asn.cymru.com", d, c, b, a);
-    
+
     PDNS_RECORD pDnsRecord = NULL;
     char txt[256] = {0};
-    
+
     // Use the native Windows DNS Client API to query for a TXT record
     DWORD dns_status = DnsQuery_A(
         query,                   // Query name
@@ -134,7 +134,7 @@ char *get_asn_from_ip(const char *ip) {
         &pDnsRecord,             // Pointer to the response record list
         NULL                     // Reserved
     );
-    
+
     if (dns_status == ERROR_SUCCESS) {
         for (PDNS_RECORD p = pDnsRecord; p != NULL; p = p->pNext) {
             if (p->wType == DNS_TYPE_TEXT) {
@@ -143,17 +143,18 @@ char *get_asn_from_ip(const char *ip) {
                 if (p->Data.pTxtRecord->StringCount > 0 && p->Data.pTxtRecord->StringArray[0]) {
                     strncpy(txt, p->Data.pTxtRecord->StringArray[0], sizeof(txt) - 1);
                 }
-                    // The TXT record is typically in the format: "ASN | IP prefix | CC | Registry | Allocated"
-                    // We only want the first part (the ASN).
-                    // The sscanf parsing logic from the original code:
-                    sscanf(txt, "%15s", asn);
-                    DnsRecordListFree(pDnsRecord, DnsFreeRecordList);
-                    return asn;
-                }
+
+                // The TXT record is typically in the format: "ASN | IP prefix | CC | Registry | Allocated"
+                // We only want the first part (the ASN).
+                // The sscanf parsing logic from the original code:
+                sscanf(txt, "%15s", asn);
+                DnsRecordListFree(pDnsRecord, DnsFreeRecordList);
+                return asn;
             }
         }
-    }
-    
+    } // <--- MISSING CLOSING BRACE FOR THE 'FOR' LOOP
+    // <--- MISSING CLOSING BRACE FOR THE 'IF (DNS_STATUS)' BLOCK
+
     if (pDnsRecord) {
         DnsRecordListFree(pDnsRecord, DnsFreeRecordList);
     }
