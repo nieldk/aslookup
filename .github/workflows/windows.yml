@@ -24,10 +24,10 @@ jobs:
             mingw-w64 \
             gcc-mingw-w64-x86-64
 
-      # --- 2. Download Dependencies Locally ---
+      # --- 2. Download Dependencies Locally (All Headers and Placeholders) ---
       - name: Download cJSON and cURL Headers Locally
         run: |
-          # 2a: Setup cJSON (Source files) - DOWNLOADED TO cjson/
+          # 2a: Setup cJSON (Source files) - Fixes 'cjson/cJSON.h: No such file'
           mkdir -p cjson
           curl -L -o cjson/cJSON.c https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -L -o cjson/cJSON.h https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
@@ -43,7 +43,8 @@ jobs:
           curl -L -o mingw-include/curl/urlapi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/urlapi.h 
           curl -L -o mingw-include/curl/options.h https://raw.githubusercontent.com/curl/curl/master/include/curl/options.h
           
-          # CRITICAL FIXES: Create DUMMY files for generated/unreliably sourced cURL headers.
+          # CRITICAL FIXES: Create DUMMY files for all known generated/unreliable cURL headers.
+          # This must include system.h to pass the current error.
           touch mingw-include/curl/system.h
           touch mingw-include/curl/header.h
           touch mingw-include/curl/websockets.h
@@ -53,8 +54,10 @@ jobs:
       # --- 3. Compile the Windows Executable (FINAL COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # FIX: Compile cjson/cJSON.c with the correct path.
-          # Manually defines curl_off_t and forces static library flags.
+          # The compiler now searches:
+          # -I. for the cjson folder.
+          # -I./mingw-include for the curl/ headers.
+          # Fix: Compile cjson/cJSON.c with the correct path.
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
