@@ -17,34 +17,35 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install Core MinGW Toolchain ---
-      # This is the single, optimized command for the core cross-compiler.
-      - name: Install Core MinGW Tools
+      # --- 1. Install Core MinGW Toolchain (ABSOLUTE BARE MINIMUM) ---
+      # Only installs the core cross-compiler, which is known to work.
+      - name: Install Core MinGW Tools (Fastest possible)
         run: |
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
             mingw-w64 \
-            gcc-mingw-w64-x86-64 \
-            # Explicitly install the libcurl headers for the base Linux environment.
-            # We hope this is enough for the cross-compiler to find the necessary files.
-            libcurl4-openssl-dev
-          
-      # --- 2. Manually Install cJSON Source and create curl directory ---
-      # Downloads the small cJSON source files directly.
-      - name: Download cJSON Source and Setup Curl Header Directory
+            gcc-mingw-w64-x86-64
+
+      # --- 2. Manually Setup Dependencies (cURL and cJSON) ---
+      # Downloads all required header/source files manually, bypassing all apt issues.
+      - name: Download cJSON and cURL Headers
         run: |
-          # Download cJSON source
+          # 2a: Setup cJSON (Source files)
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
-          # Create the expected directory for the curl header
+          # 2b: Setup cURL (Header file only)
+          # Create expected directory structure for the header: curl/curl.h
           mkdir -p curl
+          # Download the required curl header file
+          curl -L -o curl/curl.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curl.h
           
       # --- 3. Compile the Windows Executable ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # The -I. flag tells the compiler to look in the current directory for headers (like cJSON.h).
-          # We need to manually link the ws2_32 and gdi32 libraries for the Mingw-w64 curl.
+          # -I. and -Icurl tell the compiler where to find cJSON.h and curl/curl.h
+          # We rely on the core MinGW install including the actual libcurl static library.
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
+              -I. -Icurl \
               -lcurl -lws2_32 -ldnsapi -static
 
       - name: Verify Windows Executable Size
