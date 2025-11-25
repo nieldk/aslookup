@@ -1,4 +1,13 @@
-# ... (rest of the file remains the same)
+name: Build C Windows Executable
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
   build_windows:
