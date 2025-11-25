@@ -48,17 +48,16 @@ jobs:
           touch mingw-include/curl/mprintf.h
           touch mingw-include/curl/typecheck-gcc.h
           
-          # CRITICAL FIX: Manually download a MinGW-compatible static libcurl library (libcurl.a)
-          # We use a known-good source for MinGW-w64 static builds.
+          # CRITICAL FIX: Manually download an alternative, compatible MinGW-w64 static libcurl library (SJLJ build).
           mkdir -p lib
-          # Download the 64-bit static library (v8.7.1, OpenSSL-based)
-          curl -L -o lib/libcurl.a https://github.com/nieldk/misc-binaries/raw/main/libcurl_x86_64_static_8_7_1.a
+          # Note the changed URL to target a different static build file
+          curl -L -o lib/libcurl.a https://github.com/nieldk/misc-binaries/raw/main/libcurl_x86_64_static_8_6_0_SJLJ.a
 
       # --- 3. Compile the Windows Executable (FINAL COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
           # Uses all necessary flags for MinGW cross-compilation
-          # CRITICAL FIX: Link directly to the downloaded lib/libcurl.a file
+          # Link directly to the downloaded lib/libcurl.a file
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
