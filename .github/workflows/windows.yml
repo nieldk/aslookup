@@ -24,11 +24,10 @@ jobs:
             mingw-w64 \
             gcc-mingw-w64-x86-64
 
-      # --- 2. Download Dependencies Locally (FIXING cJSON PATH) ---
+      # --- 2. Download Dependencies Locally ---
       - name: Download cJSON and cURL Headers Locally
         run: |
-          # 2a: Setup cJSON (Source files)
-          # FIX: Create the 'cjson' subdirectory and download files into it.
+          # 2a: Setup cJSON (Source files) - DOWNLOADED TO cjson/
           mkdir -p cjson
           curl -L -o cjson/cJSON.c https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -L -o cjson/cJSON.h https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
@@ -51,13 +50,12 @@ jobs:
           touch mingw-include/curl/mprintf.h
           touch mingw-include/curl/typecheck-gcc.h
           
-      # --- 3. Compile the Windows Executable (Inject Missing Definitions) ---
+      # --- 3. Compile the Windows Executable (FINAL COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # The compiler now searches:
-          # -I. for the cjson folder.
-          # -I./mingw-include for the curl/ headers.
-          x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
+          # FIX: Compile cjson/cJSON.c with the correct path.
+          # Manually defines curl_off_t and forces static library flags.
+          x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
               -DCURL_IS_STATIC \
