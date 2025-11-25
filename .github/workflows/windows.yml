@@ -40,19 +40,21 @@ jobs:
           curl -L -o curl/easy.h https://raw.githubusercontent.com/curl/curl/master/include/curl/easy.h
           curl -L -o curl/multi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/multi.h
           
-      # --- 3. Compile the Windows Executable (THE FIX IS HERE) ---
+          # FINAL FIX: Download the missing system.h file into the curl/ directory
+          # The file is a crucial system config file and needs to be manually sourced.
+          # We use the include root and place it in the curl directory.
+          curl -L -o curl/system.h https://raw.githubusercontent.com/curl/curl/master/include/system.h
+          
+      # --- 3. Compile the Windows Executable (FINAL COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # Define CFLAGS with fixes for missing types and headers:
-          # -D_WIN32_WINNT=0x0600 is often needed for modern Winsock functions.
-          # We explicitly define curl_off_t since the necessary header is missing/broken.
-          # We explicitly include the system headers from MinGW's default path.
+          # Inject basic Windows environment flag and include MinGW system path
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -I. -Icurl \
               -I/usr/x86_64-w64-mingw32/include \
               -lcurl -lws2_32 -ldnsapi -static
-              
+
       - name: Verify Windows Executable Size
         run: ls -l aslookup_win.exe
           
