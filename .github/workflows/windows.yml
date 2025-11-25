@@ -17,47 +17,77 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install Core MinGW Toolchain (Bare Minimum) ---
-      - name: Install Core MinGW Tools
+      # --- 1. Install Core MinGW Toolchain and Build Dependencies ---
+      - name: Install MinGW Tools and Build Dependencies
         run: |
+          # We need basic tools for compiling the third-party library
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
             mingw-w64 \
-            gcc-mingw-w64-x86-64
+            gcc-mingw-w64-x86-64 \
+            # We need standard build tools (make, autoconf) for building libcurl
+            build-essential autoconf libtool
           
-      # --- 2. Manually Download and Setup Dependencies ---
-      - name: Download cJSON, cURL Headers, and Static Libcurl
+      # --- 2. Build Libcurl from Source for MinGW (CRITICAL FIX) ---
+      - name: Build Static Libcurl for MinGW
         run: |
-          # 2a: Setup cJSON (Source files)
+          # Define environment variables for cross-compilation
+          export TARGET_HOST=x86_64-w64-mingw32
+          export CFLAGS="-m64"
+          
+          # Clone libcurl source
+          git clone https://github.com/curl/curl.git
+          cd curl
+          
+          # Run autoconf to generate the configure script
+          ./buildconf
+          
+          # Configure for static cross-compilation
+          ./configure \
+              --host=$TARGET_HOST \
+              --build=x86_64-pc-linux-gnu \
+              --disable-shared \
+              --enable-static \
+              --with-winssl \
+              --without-ssl \
+              --disable-ldap --disable-ldaps \
+              --disable-ftp --disable-file --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-rtsp \
+              --disable-dict --disable-telnet --disable-samba --disable-mqtt \
+              --prefix=$GITHUB_WORKSPACE/curl_build 
+
+          # Compile and install
+          make -j$(nproc)
+          make install
+          
+          # Move the library and headers to the expected locations
+          mkdir -p lib
+          cp $GITHUB_WORKSPACE/curl_build/lib/libcurl.a $GITHUB_WORKSPACE/lib/
+          
+          # Headers are handled in the next step, but copy them too just in case
+          mkdir -p mingw-include
+          cp -r $GITHUB_WORKSPACE/curl_build/include/* $GITHUB_WORKSPACE/mingw-include/
+
+      # --- 3. Manually Download and Setup Dependencies (Minimal Cleanup) ---
+      - name: Download cJSON and cURL Headers Locally (for CJSON and dummy headers)
+        run: |
+          # 3a: Setup cJSON (Source files) - Fixes 'cjson/cJSON.h: No such file'
           mkdir -p cjson
           curl -L -o cjson/cJSON.c https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -L -o cjson/cJSON.h https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
-          # 2b: Setup cURL Headers (Local injection)
+          # 3b: Setup cURL Headers (Dummy files only, real headers are from the build step)
           mkdir -p mingw-include/curl
-          # Download ALL core cURL headers:
-          curl -L -o mingw-include/curl/curl.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curl.h
-          curl -L -o mingw-include/curl/curlver.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curlver.h
-          curl -L -o mingw-include/curl/easy.h https://raw.githubusercontent.com/curl/curl/master/include/curl/easy.h
-          curl -L -o mingw-include/curl/multi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/multi.h
-          curl -L -o mingw-include/curl/urlapi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/urlapi.h 
-          curl -L -o mingw-include/curl/options.h https://raw.githubusercontent.com/curl/curl/master/include/curl/options.h
-          # Create DUMMY files for all known generated/unreliable cURL headers.
+          # CRITICAL FIXES: Create DUMMY files for all known generated/unreliable cURL headers.
           touch mingw-include/curl/system.h
           touch mingw-include/curl/header.h
           touch mingw-include/curl/websockets.h
           touch mingw-include/curl/mprintf.h
           touch mingw-include/curl/typecheck-gcc.h
           
-          # CRITICAL FIX: Manually download an alternative, compatible MinGW-w64 static libcurl library (SJLJ build).
-          mkdir -p lib
-          # Note the changed URL to target a different static build file
-          curl -L -o lib/libcurl.a https://github.com/nieldk/misc-binaries/raw/main/libcurl_x86_64_static_8_6_0_SJLJ.a
-
-      # --- 3. Compile the Windows Executable (FINAL COMMAND) ---
+      # --- 4. Compile the Windows Executable (FINAL COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
           # Uses all necessary flags for MinGW cross-compilation
-          # Link directly to the downloaded lib/libcurl.a file
+          # Link directly to the freshly built lib/libcurl.a file
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
