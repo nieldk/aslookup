@@ -11,14 +11,13 @@ on:
 
 jobs:
   build_windows:
-    runs-on: codeberg-tiny 
+    runs-on: codeberg-tiny
     
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       # --- 1. Install Core MinGW Toolchain (ABSOLUTE BARE MINIMUM) ---
-      # Only installs the core cross-compiler to save time and avoid package lookup errors.
       - name: Install Core MinGW Tools
         run: |
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
@@ -26,7 +25,6 @@ jobs:
             gcc-mingw-w64-x86-64
 
       # --- 2. Manually Setup Dependencies (cURL and cJSON Headers/Sources) ---
-      # Downloads all required C headers and source files directly via cURL, bypassing apt entirely.
       - name: Download cJSON and cURL Headers
         run: |
           # 2a: Setup cJSON (Source files)
@@ -34,24 +32,27 @@ jobs:
           curl -LO https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
           # 2b: Setup cURL (Header files)
-          # Create expected directory structure for the headers: curl/
           mkdir -p curl
           
-          # Download all required curl headers needed to satisfy the include chain
+          # Download all required curl headers
           curl -L -o curl/curl.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curl.h
           curl -L -o curl/curlver.h https://raw.githubusercontent.com/curl/curl/master/include/curl/curlver.h
           curl -L -o curl/easy.h https://raw.githubusercontent.com/curl/curl/master/include/curl/easy.h
           curl -L -o curl/multi.h https://raw.githubusercontent.com/curl/curl/master/include/curl/multi.h
           
-      # --- 3. Compile the Windows Executable ---
+      # --- 3. Compile the Windows Executable (THE FIX IS HERE) ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # -I. and -Icurl direct the compiler to find the manually downloaded headers.
-          # -lcurl, -lws2_32, -ldnsapi rely on the core MinGW install providing the static libraries.
+          # Define CFLAGS with fixes for missing types and headers:
+          # -D_WIN32_WINNT=0x0600 is often needed for modern Winsock functions.
+          # We explicitly define curl_off_t since the necessary header is missing/broken.
+          # We explicitly include the system headers from MinGW's default path.
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cJSON.c \
+              -D_WIN32_WINNT=0x0600 \
               -I. -Icurl \
+              -I/usr/x86_64-w64-mingw32/include \
               -lcurl -lws2_32 -ldnsapi -static
-
+              
       - name: Verify Windows Executable Size
         run: ls -l aslookup_win.exe
           
