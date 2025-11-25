@@ -17,11 +17,11 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install Core MinGW Toolchain and Cross-Libraries (CRITICAL FIX: New package name) ---
+      # --- 1. Install Core MinGW Toolchain and Cross-Libraries (FINAL PACKAGE NAME ATTEMPT) ---
       - name: Install Core MinGW Tools and Cross-Libraries
         run: |
-          # CRITICAL FIX: Using the standardized package name for the libcurl cross-development files.
-          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mingw-w64 gcc-mingw-w64-x86-64 mingw-w64-x86-64-dev-curl
+          # CRITICAL FIX: Trying the package 'libcurl-mingw-w64-dev' as the final standard guess.
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mingw-w64 gcc-mingw-w64-x86-64 libcurl-mingw-w64-dev
           
       # --- 2. Download Dependencies Locally (All Headers and Placeholders) ---
       - name: Download cJSON and cURL Headers Locally
