@@ -85,14 +85,14 @@ jobs:
       - name: Compile aslookup_win.c for Windows
         run: |
           # Uses all necessary flags for MinGW cross-compilation
-          # Removed -Dcurl_offt="long long" to fix the macro conflict.
+          # CRITICAL FIX: Removed conflicting macros and added WinSSL linker dependencies.
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
               -D_CRT_DECLARE_NONSTDC_NAMES \
               -I. \
               -I./mingw-include \
-              ./lib/libcurl.a -lws2_32 -ldnsapi -static
+              ./lib/libcurl.a -lws2_32 -ldnsapi -lbcrypt -ladvapi32 -lcrypt32 -static
 
       - name: Verify Windows Executable Size
         run: ls -l aslookup_win.exe
