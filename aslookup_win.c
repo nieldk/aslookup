@@ -17,6 +17,7 @@
 #endif
 
 // --- Unix-like functions replaced with standard or equivalent for Windows ---
+// NOTE: strtok_r is not strictly thread-safe with this macro, but works for this single-threaded use.
 #define strtok_r(s, delim, saveptr) strtok(s, delim)
 #define getaddrinfo(domain, service, hints, res) GetAddrInfo(domain, service, hints, res)
 #define freeaddrinfo(res) FreeAddrInfo(res)
@@ -85,6 +86,7 @@ char *resolve_domain_to_ip(const char *domain) {
     hints.ai_family = AF_UNSPEC; // AF_INET or AF_INET6 to force version
     hints.ai_socktype = SOCK_STREAM;
 
+    // GetAddrInfoA attempts to resolve the domain name
     if ((status = GetAddrInfoA(domain, NULL, &hints, &res)) != 0) {
         return NULL;
     }
@@ -192,7 +194,7 @@ void fetch_ip_ranges(const char *asn, FILE *output) {
                         
                         set_console_color(COLOR_CYAN);
                         fprintf(output, "IP Ranges:\n");
-                        fprintf(output, "\"%s\",\"%s, %s\"\n", asn, 
+                        fprintf(output, "ASN: %s, Name: %s, Country: %s\n", asn, 
                             cJSON_IsString(name) ? name->valuestring : "N/A", 
                             cJSON_IsString(country_code) ? country_code->valuestring : "N/A");
                         reset_console_color();
@@ -201,6 +203,7 @@ void fetch_ip_ranges(const char *asn, FILE *output) {
                     cJSON *ipv4_prefixes = cJSON_GetObjectItemCaseSensitive(data, "ipv4_prefixes");
                     if (ipv4_prefixes && cJSON_IsArray(ipv4_prefixes)) {
                         cJSON *prefix_item = NULL;
+                        fprintf(output, "--- IPv4 Prefixes ---\n");
                         cJSON_ArrayForEach(prefix_item, ipv4_prefixes) {
                             cJSON *prefix = cJSON_GetObjectItemCaseSensitive(prefix_item, "prefix");
                             if (prefix && cJSON_IsString(prefix)) {
@@ -212,6 +215,7 @@ void fetch_ip_ranges(const char *asn, FILE *output) {
                     cJSON *ipv6_prefixes = cJSON_GetObjectItemCaseSensitive(data, "ipv6_prefixes");
                     if (ipv6_prefixes && cJSON_IsArray(ipv6_prefixes)) {
                         cJSON *prefix_item = NULL;
+                        fprintf(output, "--- IPv6 Prefixes ---\n");
                         cJSON_ArrayForEach(prefix_item, ipv6_prefixes) {
                             cJSON *prefix = cJSON_GetObjectItemCaseSensitive(prefix_item, "prefix");
                             if (prefix && cJSON_IsString(prefix)) {
@@ -223,12 +227,13 @@ void fetch_ip_ranges(const char *asn, FILE *output) {
                 cJSON_Delete(json);
             } else {
                 set_console_color(COLOR_RED);
-                fprintf(output, "Failed to parse JSON.\n");
-                // DEBUG: fprintf(output, "Raw Response: %s\n", chunk.memory);
+                fprintf(output, "Failed to parse JSON for IP Ranges.\n");
                 reset_console_color();
             }
         } else {
-            // Error handling if cURL failed to perform
+            set_console_color(COLOR_RED);
+            fprintf(output, "Failed to fetch IP Ranges for ASN %s (cURL error: %s).\n", asn, curl_easy_strerror(res));
+            reset_console_color();
         }
         curl_easy_cleanup(curl);
     }
@@ -248,7 +253,7 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
     snprintf(url, sizeof(url), "https://api.bgpview.io/asn/%s", asn);
 
     set_console_color(COLOR_YELLOW);
-    fprintf(output, "ASN Information:\n");
+    fprintf(output, "\nASN Information:\n");
     reset_console_color();
 
     curl = curl_easy_init();
@@ -289,16 +294,17 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
                 cJSON_Delete(json);
             } else {
                 set_console_color(COLOR_RED);
-                fprintf(output, "Failed to parse JSON.\n");
-                // DEBUG: fprintf(output, "Raw Response: %s\n", chunk.memory);
+                fprintf(output, "Failed to parse JSON for ASN Info.\n");
                 reset_console_color();
             }
         } else {
-            // Error handling if cURL failed to perform
+            set_console_color(COLOR_RED);
+            fprintf(output, "Failed to fetch ASN Info for ASN %s (cURL error: %s).\n", asn, curl_easy_strerror(res));
+            reset_console_color();
         }
         curl_easy_cleanup(curl);
     }
-    // FIX: Changed 'chunk->memory' to 'chunk.memory'
+    // FIX: Changed 'chunk->memory' to 'chunk.memory' in the previous step
     free(chunk.memory);
 }
 
@@ -312,22 +318,40 @@ int main(int argc, char **argv) {
         saved_attributes = csbi.wAttributes;
     }
 
-    // Command Line Argument Parsing (Skipped for brevity, assume domains/ips are populated)
-    // ...
-
-    char *ips = NULL; // Assuming this is populated by argv parsing
-    char *domains = NULL; // Assuming this is populated by argv parsing
-    FILE *output = stdout; // Assuming output is stdout by default
-
-    // ... (Your existing argument parsing and domain/IP lookup logic)
-    // For demonstration, let's assume the necessary main logic is here
-    
-    // --- START DUMMY MAIN LOGIC FOR COMPILATION CHECK ---
-    // This assumes you pass '-d sec1.dk'
-    if (argc > 2 && strcmp(argv[1], "-d") == 0) {
-        domains = strdup(argv[2]);
+    // --- CRITICAL FIX 1: Initialize Winsock (required for GetAddrInfo/DNS) ---
+    WSADATA wsaData;
+    int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if (iResult != 0) {
+        fprintf(stderr, "WSAStartup failed: %d\n", iResult);
+        return 1;
     }
-    // --- END DUMMY MAIN LOGIC ---
+    // -------------------------------------------------------------------------
+
+    char *ips = NULL; 
+    char *domains = NULL; 
+    FILE *output = stdout; 
+
+    // --- CRITICAL FIX 2: Implement robust command-line argument parsing ---
+    if (argc < 3) {
+        set_console_color(COLOR_WHITE);
+        fprintf(output, "Usage: %s -d <domain1,domain2> -i <ip1,ip2> > output.txt\n", argv[0]);
+        fprintf(output, "       -d: Comma-separated list of domains to look up.\n");
+        fprintf(output, "       -i: Comma-separated list of IP addresses to look up.\n");
+        reset_console_color();
+        // Skip WSACleanup and curl_global_cleanup, as they aren't strictly necessary if we exit here.
+        // It's technically safer to clean up, but for a simple usage error exit, we can skip it.
+        return 1; 
+    }
+    
+    // Parse arguments
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-d") == 0 && (i + 1) < argc) {
+            domains = strdup(argv[++i]);
+        } else if (strcmp(argv[i], "-i") == 0 && (i + 1) < argc) {
+            ips = strdup(argv[++i]);
+        }
+    }
+    // ----------------------------------------------------------------------
 
 
     char *token;
@@ -344,10 +368,11 @@ int main(int argc, char **argv) {
                 reset_console_color();
             } else {
                 set_console_color(COLOR_GREEN);
-                fprintf(output, "Resolved ASN for IP %s: %s\n", token, asn);
+                fprintf(output, "\nResolved ASN for IP %s: %s\n", token, asn);
                 reset_console_color();
                 fetch_ip_ranges(asn, output);
                 fetch_bgpview_info(asn, output);
+                free(asn);
             }
             token = strtok_r(NULL, ",", &saveptr);
         }
@@ -370,10 +395,11 @@ int main(int argc, char **argv) {
                     reset_console_color();
                 } else {
                     set_console_color(COLOR_GREEN);
-                    fprintf(output, "Resolved ASN for domain %s (IP %s): %s\n", token, resolved_ip, asn);
+                    fprintf(output, "\nResolved ASN for domain %s (IP %s): %s\n", token, resolved_ip, asn);
                     reset_console_color();
                     fetch_ip_ranges(asn, output);
                     fetch_bgpview_info(asn, output);
+                    free(asn);
                 }
                 free(resolved_ip); // Free the resolved IP
             }
@@ -386,6 +412,9 @@ int main(int argc, char **argv) {
     
     // Cleanup
     curl_global_cleanup();
+    // --- CRITICAL FIX 1: Clean up Winsock ---
+    WSACleanup();
+    // ----------------------------------------
     
     return 0;
 }
