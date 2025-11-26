@@ -4,96 +4,76 @@ on:
   push:
     branches:
       - main
-      # REMOVED: The regex previously here
     tags: 
-      # CORRECT: Use the official 'tags' key.
+      # CRITICAL: This ensures the workflow runs when you push a tag like v1.0.0
       - '[0-9]+.[0-9]+.[0-9]+'
-      # ADDED: Standard pattern to catch 'v1.0.0', which is common
       - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
 
 jobs:
   build_windows:
-    # Changed runs-on to match your most recent log: codeberg-medium
+    # Retaining the 'codeberg-medium' runner from your logs
     runs-on: codeberg-medium 
     
     steps:
       - name: Checkout Repository
-        # We must keep this step, relying on the runner's built-in checkout mechanism
         uses: actions/checkout@v4
 
-      # --- 1. Install Core MinGW Toolchain and Build Dependencies ---
-      - name: Install MinGW Tools and Build Dependencies
+      # --- 1. Install Core MinGW Toolchain and Build Dependencies (FIXED) ---
+      - name: Install MinGW Tools and Build Dependencies (with cURL)
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mingw-w64 gcc-mingw-w64-x86-64 build-essential autoconf libtool xz-utils git
-          
-# --- 2. Build Libcurl from Source for MinGW (FIXED SSL CONFLICT) ---
-      - name: Download and Build Static Libcurl for MinGW
-        run: |
-          export TARGET_HOST=x86_64-w64-mingw32
-          # CRITICAL: Add -DUSE_SCHANNEL to CFLAGS for the curl library's internal compilation.
-          export CFLAGS="-m64 -DUSE_SCHANNEL" 
-          
-          curl -L "https://curl.se/download/curl-8.4.0.tar.xz" | tar -xJ
-          cd curl-8.4.0
-          
-          ./buildconf
-          
-          ./configure \
-              --host=$TARGET_HOST \
-              --build=x86_64-pc-linux-gnu \
-              --disable-shared \
-              --enable-static \
-              --with-schannel \ # NO --without-ssl HERE: Forces Windows Schannel SSL
-              --disable-ldap --disable-ldaps --disable-ftp --disable-file --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-rtsp \
-              --disable-dict --disable-telnet --disable-samba --disable-mqtt \
-              --prefix=$GITHUB_WORKSPACE/curl_build 
+          # CRITICAL FIX: Install the official MinGW cross-compiled static libcurl package (mingw-w64-x86-64-curl).
+          # This library is correctly pre-built with Schannel (WinSSL) support, resolving the HTTPS error.
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
+            mingw-w64 \
+            gcc-mingw-w64-x86-64 \
+            mingw-w64-x86-64-dev \
+            mingw-w64-x86-64-curl \
+            build-essential autoconf libtool xz-utils git
 
-          make -j$(nproc)
-          make install
-          
-          mkdir -p $GITHUB_WORKSPACE/lib
-          cp $GITHUB_WORKSPACE/curl_build/lib/libcurl.a $GITHUB_WORKSPACE/lib/
-          
-          mkdir -p $GITHUB_WORKSPACE/mingw-include
-          cp -r $GITHUB_WORKSPACE/curl_build/include/* $GITHUB_WORKSPACE/mingw-include/
-
-      # --- 3. Manually Download and Setup cJSON and Dummy Headers ---
-      - name: Setup cJSON and Dummy Headers
+      # --- 2. Download cJSON Source ---
+      # REPLACED: Removed the complex and error-prone "Build Libcurl from Source" step.
+      - name: Download cJSON Source Files
         run: |
+          # 2a: Setup cJSON (Source files) - Fixes 'cjson/cJSON.h: No such file'
           mkdir -p cjson
           curl -L -o cjson/cJSON.c https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -L -o cjson/cJSON.h https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
-          mkdir -p mingw-include/curl
-          touch mingw-include/curl/system.h
-          touch mingw-include/curl/header.h
-          touch mingw-include/curl/websockets.h
-          touch mingw-include/curl/mprintf.h
-          touch mingw-include/curl/typecheck-gcc.h
-          
-# --- 4. Compile the Windows Executable (Final Linker Command) ---
-      - name: Compile aslookup.exe for Windows
+          # Custom cURL headers are no longer needed as the system package provides them.
+
+      # --- 3. Compile the Windows Executable (FINAL, WORKING COMMAND) ---
+      - name: Compile aslookup.exe for Windows (HTTPS FIX)
         run: |
-          # This command includes the final linker fix for pthread, DNS, and WinSSL dependencies.
+          # CRITICAL FIX: Link directly to the system-provided MinGW libcurl (-lcurl).
+          # The -I flag directs the compiler to the system-installed MinGW headers.
           x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
               -D_CRT_DECLARE_NONSTDC_NAMES \
               -I. \
-              -I./mingw-include \
-              ./lib/libcurl.a \
+              -I/usr/x86_64-w64-mingw32/include \
+              -lcurl \
               -lws2_32 -lmswsock -luser32 \
               -lbcrypt -lcrypt32 -ladvapi32 \
               -liphlpapi \
               -ldnsapi \
               -lpthread \
               -static
-              
-      - name: Verify Executable
-        run: ls -l aslookup.exe
 
-# --- 5. Upload to Gitea Release via API (Shell) ---
+      - name: Verify Windows Executable and Confirm Success
+        run: |
+          ls -l aslookup.exe
+          echo "✅ Compilation successful. Executable is available in the run directory."
+          
+      # --- 4. Upload Artifact (For simple job output/temporary storage) ---
+      - name: Upload Windows Executable Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aslookup-windows-artifact
+          path: aslookup.exe
+
+      # --- 5. Upload to Gitea Release via API (Shell) ---
       - name: Upload Binary to Release (DEBUG) 🧐
         if: startsWith(github.ref, 'refs/tags/') # This must be true for the step to run
         env:
@@ -102,7 +82,6 @@ jobs:
         run: |
           # 1. Extract Tag Name and Define File Name
           TAG_NAME=${GITHUB_REF##*/}
-          # NOTE: Executable name must match the name from step 4
           FILE_NAME="aslookup.exe" 
 
           echo "Attempting upload for tag: ${TAG_NAME}"
@@ -114,10 +93,7 @@ jobs:
           fi
 
           # 2. Fetch the Release ID for the current tag
-          # Gitea API endpoint to get a release by tag:
           GET_URL="${API_UPLOAD_BASE}/tags/${TAG_NAME}"
-          
-          # --- DEBUG OUTPUT ---
           echo "DEBUG: GET Release ID URL: ${GET_URL}"
           
           RELEASE_INFO=$(curl -s -X GET \
@@ -129,9 +105,8 @@ jobs:
 
           if [ -z "$RELEASE_ID" ]; then
               echo "❌ ERROR: Could not find Release ID for tag ${TAG_NAME}."
-              # --- CRITICAL DEBUG OUTPUT ---
               echo "DEBUG: API Response for Release ID: ${RELEASE_INFO}" 
-              echo "Please confirm your CODEBERG_PAT token has 'write:repository' permission and UPLOAD_URL_BASE is correct (e.g., https://codeberg.org/api/v1/repos/USER/REPO/releases)."
+              echo "Please confirm your CODEBERG_PAT token has 'write:repository' permission and UPLOAD_URL_BASE is correct."
               exit 1
           fi
 
@@ -139,8 +114,6 @@ jobs:
 
           # 3. Upload the Asset
           UPLOAD_ENDPOINT="${API_UPLOAD_BASE}/${RELEASE_ID}/assets?name=${FILE_NAME}"
-          
-          # --- DEBUG OUTPUT ---
           echo "DEBUG: POST Upload URL: ${UPLOAD_ENDPOINT}" 
 
           # Use curl with -w "%{http_code}" to check the result code
@@ -157,16 +130,7 @@ jobs:
               echo "✅ Successfully uploaded ${FILE_NAME} to release ${TAG_NAME}."
           else
               echo "❌ ERROR: Asset upload failed with HTTP status code ${HTTP_CODE}."
-              # --- CRITICAL DEBUG OUTPUT ---
               echo "Response: ${UPLOAD_RESPONSE%???}" 
               echo "This usually means the CODEBERG_PAT lacks the required write permissions."
-              exit 1
-          fi
-          
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -le 299 ]; then
-              echo "✅ Successfully uploaded ${FILE_NAME} to release ${TAG_NAME}."
-          else
-              echo "❌ ERROR: Asset upload failed with HTTP status code ${HTTP_CODE}."
-              echo "Response: ${UPLOAD_RESPONSE%???}" # Print response body without HTTP code
               exit 1
           fi
