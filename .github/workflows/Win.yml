@@ -5,7 +5,6 @@ on:
     branches:
       - main
     tags: 
-      # Ensures the workflow runs when you push a tag
       - '[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
@@ -21,7 +20,7 @@ jobs:
       # --- 1. Install Core MinGW Toolchain and Build Dependencies ---
       - name: Install MinGW Tools and Build Dependencies
         run: |
-          # Reverted to the stable package list, removing the one that caused the E: Unable to locate package error.
+          # Install all necessary tools, including build system, mingw, and xz for extraction
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
             mingw-w64 \
             gcc-mingw-w64-x86-64 \
@@ -31,11 +30,11 @@ jobs:
             xz-utils \
             git
 
-      # --- 2. Build Libcurl from Source for MinGW (FIXED SSL) ---
+      # --- 2. Build Libcurl from Source for MinGW (FIXED CONFLICT) ---
       - name: Download and Build Static Libcurl for MinGW
         run: |
           export TARGET_HOST=x86_64-w64-mingw32
-          # CRITICAL FIX 1: Set -DUSE_SCHANNEL to enable WinSSL code paths in libcurl source.
+          # CRITICAL FIX 1: Add -DUSE_SCHANNEL to CFLAGS for the curl library compilation.
           export CFLAGS="-m64 -DUSE_SCHANNEL" 
           
           curl -L "https://curl.se/download/curl-8.4.0.tar.xz" | tar -xJ
@@ -48,7 +47,7 @@ jobs:
               --build=x86_64-pc-linux-gnu \
               --disable-shared \
               --enable-static \
-              --with-schannel \ # CRITICAL FIX 2: Explicitly enable Schannel and REMOVE the conflicting --without-ssl
+              --with-schannel \
               --disable-ldap --disable-ldaps --disable-ftp --disable-file --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-rtsp \
               --disable-dict --disable-telnet --disable-samba --disable-mqtt \
               --prefix=$GITHUB_WORKSPACE/curl_build 
@@ -69,7 +68,7 @@ jobs:
           curl -L -o cjson/cJSON.h https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
           # 3b: Setup cURL Headers (Local injection) - Required when building cURL from source
-          mkdir -p mingw-include/curl
+          mkdir -p mingw-include
           cp -r $GITHUB_WORKSPACE/curl_build/include/* $GITHUB_WORKSPACE/mingw-include/
 
 
