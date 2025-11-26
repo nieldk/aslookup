@@ -84,7 +84,8 @@ jobs:
 # --- 4. Compile the Windows Executable (FINAL COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # CRITICAL FIX: Added -liphlpapi to resolve DNS/networking dependencies.
+          # CRITICAL FIX: The brute-force linker pass. Libraries are listed in an order 
+          # that satisfies both libcurl's WinSSL dependencies and the app's DNS dependencies.
           x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
@@ -92,12 +93,8 @@ jobs:
               -I. \
               -I./mingw-include \
               ./lib/libcurl.a \
-              -lcrypt32 \
-              -lws2_32 \
-              -ladvapi32 \
-              -luser32 \
-              -lbcrypt \
-              -lmswsock \
+              -lws2_32 -lwsock32 -lmswsock -luser32 \
+              -lbcrypt -lcrypt32 -ladvapi32 \
               -liphlpapi \
               -ldnsapi \
               -static
