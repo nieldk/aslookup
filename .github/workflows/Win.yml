@@ -29,31 +29,34 @@ jobs:
             xz-utils \
             git
 
-      # --- 2. Build Libcurl from Source for MinGW (SSL CONFLICT FIXED) ---
+ # Win.yml - Step 2: Download and Build Static Libcurl for MinGW
+
       - name: Download and Build Static Libcurl for MinGW
         run: |
           export TARGET_HOST=x86_64-w64-mingw32
           # CRITICAL FIX 1: Set -DUSE_SCHANNEL to enable WinSSL code paths.
           export CFLAGS="-m64 -DUSE_SCHANNEL" 
           
+          # 🆕 CRITICAL FIX 2: Explicitly add WinSSL dependencies to the linker flags
+          # This forces libcurl.a to be built with references to these static libraries.
+          export LDFLAGS="-lbcrypt -lcrypt32 -ladvapi32" 
+          
           curl -L "https://curl.se/download/curl-8.4.0.tar.xz" | tar -xJ
           cd curl-8.4.0
           
           ./buildconf
           
-          # Configure with Schannel, static linking, and without unnecessary protocols
           ./configure \
               --host=$TARGET_HOST \
               --build=x86_64-pc-linux-gnu \
               --disable-shared \
               --enable-static \
               --with-schannel \
-              --disable-ldap --disable-ldaps --disable-ftp --disable-file --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-rtsp \
-              --disable-dict --disable-telnet --disable-samba --disable-mqtt \
-              --prefix=$GITHUB_WORKSPACE/curl_build 
-
-          make -j$(nproc)
-          make install
+              --without-ssl \
+              --without-zlib
+          
+          make
+          make install DESTDIR=$(pwd)/../static prefix=/
           
           mkdir -p $GITHUB_WORKSPACE/lib
           cp $GITHUB_WORKSPACE/curl_build/lib/libcurl.a $GITHUB_WORKSPACE/lib/
