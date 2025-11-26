@@ -4,12 +4,13 @@ on:
   push:
     branches:
       - main
-      # CRITICAL: Also run when a tag is pushed (e.g., v1.0.0)
+      # CRITICAL: This line ensures the workflow also runs when a tag is pushed
       - '[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
 
 jobs:
   build_windows:
+    # Changed runs-on to match your most recent log: codeberg-medium
     runs-on: codeberg-medium 
     
     steps:
@@ -70,7 +71,6 @@ jobs:
       # --- 4. Compile the Windows Executable (FINAL WORKING COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # Final linker command to resolve all dependencies: libcurl, WinSSL, DNS, and pthread.
           x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
@@ -88,13 +88,13 @@ jobs:
       - name: Verify Executable
         run: ls -l aslookup.exe
 
-      # --- 5. CRITICAL FIX: Upload to Gitea Release via API (Shell) ---
-      # This step replaces the failing softprops/action-gh-release action.
+      # --- 5. Upload to Gitea Release via API (Shell) ---
+      # Uses the custom secrets you created.
       - name: Upload Binary to Release
-        if: startsWith(github.ref, 'refs/tags/') # Only run if a tag triggered the workflow
+        if: startsWith(github.ref, 'refs/tags/') # This must be true for the step to run
         env:
-          CODEBERG_PAT: ${{ secrets.CODEBERG_PAT }}        # Custom secret name
-          API_UPLOAD_BASE: ${{ secrets.UPLOAD_URL_BASE }} # Custom secret name
+          CODEBERG_PAT: ${{ secrets.CODEBERG_PAT }}        
+          API_UPLOAD_BASE: ${{ secrets.UPLOAD_URL_BASE }} 
         run: |
           # 1. Extract Tag Name
           TAG_NAME=${GITHUB_REF##*/}
@@ -103,33 +103,34 @@ jobs:
           echo "Attempting to create and upload release asset for tag: ${TAG_NAME}"
 
           # 2. Fetch the Release ID for the current tag
-          # API call to get release info (must use the secret URL)
+          # API call to get release info
           RELEASE_INFO=$(curl -s -X GET \
               -H "Authorization: token ${CODEBERG_PAT}" \
               "${API_UPLOAD_BASE}/tags/${TAG_NAME}")
 
           # Parse the ID from the JSON response
+          # We use head -1 to ensure we only get the first ID found
           RELEASE_ID=$(echo "${RELEASE_INFO}" | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*')
 
           if [ -z "$RELEASE_ID" ]; then
               echo "❌ ERROR: Could not find Release ID for tag ${TAG_NAME}."
-              echo "Please ensure you push a valid tag (e.g., 'git push --tags') and that the UPLOAD_URL_BASE secret is correct."
+              echo "Please ensure you pushed a valid tag (e.g., 'git push --tags') and that the UPLOAD_URL_BASE secret is correct."
               exit 1
           fi
 
           echo "Found Release ID: ${RELEASE_ID}. Uploading asset..."
 
           # 3. Upload the Asset
-          # Gitea API: POST /repos/{owner}/{repo}/releases/{id}/assets?name={filename}
           UPLOAD_ENDPOINT="${API_UPLOAD_BASE}/${RELEASE_ID}/assets?name=${FILE_NAME}"
 
+          # Use curl with -w "%{http_code}" to check the result code
           UPLOAD_RESPONSE=$(curl -s -w "%{http_code}" -X POST \
               -H "Authorization: token ${CODEBERG_PAT}" \
               -H "Content-Type: application/octet-stream" \
               --data-binary "@${FILE_NAME}" \
               "${UPLOAD_ENDPOINT}")
           
-          # Check HTTP response code (last 3 digits of UPLOAD_RESPONSE)
+          # Check HTTP response code 
           HTTP_CODE="${UPLOAD_RESPONSE: -3}"
           
           if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -le 299 ]; then
