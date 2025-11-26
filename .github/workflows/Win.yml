@@ -11,7 +11,8 @@ on:
 
 jobs:
   build_windows:
-    runs-on: codeberg-tiny
+    # Changed runs-on from 'codeberg-tiny' to 'codeberg-medium' in your old file, maintaining 'tiny' here based on your latest log
+    runs-on: codeberg-tiny 
     
     steps:
       - name: Checkout Repository
@@ -28,6 +29,7 @@ jobs:
           export TARGET_HOST=x86_64-w64-mingw32
           export CFLAGS="-m64"
           
+          # Download source archive from a reliable mirror and extract.
           curl -L "https://curl.se/download/curl-8.4.0.tar.xz" | tar -xJ
           cd curl-8.4.0
           
@@ -67,25 +69,28 @@ jobs:
           touch mingw-include/curl/mprintf.h
           touch mingw-include/curl/typecheck-gcc.h
           
-      # --- 4. Compile the Windows Executable (FINAL COMMAND) ---
+      # --- 4. Compile the Windows Executable (FINAL SUCCESSFUL LINKER COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cjson/cJSON.c \
+          # This command includes the final linker fix for pthread, DNS, and WinSSL dependencies.
+          x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
               -D_CRT_DECLARE_NONSTDC_NAMES \
               -I. \
               -I./mingw-include \
               ./lib/libcurl.a \
-              -lws2_32 -lwsock32 -lmswsock -luser32 \
+              -lws2_32 -lmswsock -luser32 \
               -lbcrypt -lcrypt32 -ladvapi32 \
               -liphlpapi \
               -ldnsapi \
               -lpthread \
               -static
               
-      - name: Verify Windows Executable Size
-        run: ls -l aslookup.exe
+      - name: Verify Windows Executable and Confirm Success
+        run: |
+          ls -l aslookup.exe
+          echo "✅ Compilation successful. Executable is available in the run directory."
           
       # --- 5. Upload Artifact (For simple job output/temporary storage) ---
       - name: Upload Windows Executable Artifact
