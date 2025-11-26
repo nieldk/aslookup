@@ -5,55 +5,86 @@ on:
     branches:
       - main
     tags: 
-      # CRITICAL: This ensures the workflow runs when you push a tag like v1.0.0
+      # Ensures the workflow runs when you push a tag
       - '[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
 
 jobs:
   build_windows:
-    # Retaining the 'codeberg-medium' runner from your logs
     runs-on: codeberg-medium 
     
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. Install Core MinGW Toolchain and Build Dependencies (FIXED) ---
-      - name: Install MinGW Tools and Build Dependencies (with cURL)
+      # --- 1. Install Core MinGW Toolchain and Build Dependencies ---
+      - name: Install MinGW Tools and Build Dependencies
         run: |
-          # CRITICAL FIX: Install the official MinGW cross-compiled static libcurl package (mingw-w64-x86-64-curl).
-          # This library is correctly pre-built with Schannel (WinSSL) support, resolving the HTTPS error.
+          # Reverted to the stable package list, removing the one that caused the E: Unable to locate package error.
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
             mingw-w64 \
             gcc-mingw-w64-x86-64 \
-            mingw-w64-x86-64-dev \
-            mingw-w64-x86-64-curl \
-            build-essential autoconf libtool xz-utils git
+            build-essential \
+            autoconf \
+            libtool \
+            xz-utils \
+            git
 
-      # --- 2. Download cJSON Source ---
-      # REPLACED: Removed the complex and error-prone "Build Libcurl from Source" step.
-      - name: Download cJSON Source Files
+      # --- 2. Build Libcurl from Source for MinGW (FIXED SSL) ---
+      - name: Download and Build Static Libcurl for MinGW
         run: |
-          # 2a: Setup cJSON (Source files) - Fixes 'cjson/cJSON.h: No such file'
+          export TARGET_HOST=x86_64-w64-mingw32
+          # CRITICAL FIX 1: Set -DUSE_SCHANNEL to enable WinSSL code paths in libcurl source.
+          export CFLAGS="-m64 -DUSE_SCHANNEL" 
+          
+          curl -L "https://curl.se/download/curl-8.4.0.tar.xz" | tar -xJ
+          cd curl-8.4.0
+          
+          ./buildconf
+          
+          ./configure \
+              --host=$TARGET_HOST \
+              --build=x86_64-pc-linux-gnu \
+              --disable-shared \
+              --enable-static \
+              --with-schannel \ # CRITICAL FIX 2: Explicitly enable Schannel and REMOVE the conflicting --without-ssl
+              --disable-ldap --disable-ldaps --disable-ftp --disable-file --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-rtsp \
+              --disable-dict --disable-telnet --disable-samba --disable-mqtt \
+              --prefix=$GITHUB_WORKSPACE/curl_build 
+
+          make -j$(nproc)
+          make install
+          
+          mkdir -p $GITHUB_WORKSPACE/lib
+          cp $GITHUB_WORKSPACE/curl_build/lib/libcurl.a $GITHUB_WORKSPACE/lib/
+          
+
+      # --- 3. Download cJSON and cURL Headers Locally ---
+      - name: Download cJSON and cURL Headers Locally
+        run: |
+          # 3a: Setup cJSON (Source files)
           mkdir -p cjson
           curl -L -o cjson/cJSON.c https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -L -o cjson/cJSON.h https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
-          # Custom cURL headers are no longer needed as the system package provides them.
+          # 3b: Setup cURL Headers (Local injection) - Required when building cURL from source
+          mkdir -p mingw-include/curl
+          cp -r $GITHUB_WORKSPACE/curl_build/include/* $GITHUB_WORKSPACE/mingw-include/
 
-      # --- 3. Compile the Windows Executable (FINAL, WORKING COMMAND) ---
+
+      # --- 4. Compile the Windows Executable (FINAL, WORKING COMMAND) ---
       - name: Compile aslookup.exe for Windows (HTTPS FIX)
         run: |
-          # CRITICAL FIX: Link directly to the system-provided MinGW libcurl (-lcurl).
-          # The -I flag directs the compiler to the system-installed MinGW headers.
+          # The final compilation command must link against the local libcurl.a AND 
+          # all required Windows security libraries for Schannel to function at runtime.
           x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
               -D_CRT_DECLARE_NONSTDC_NAMES \
               -I. \
-              -I/usr/x86_64-w64-mingw32/include \
-              -lcurl \
+              -I./mingw-include \
+              ./lib/libcurl.a \
               -lws2_32 -lmswsock -luser32 \
               -lbcrypt -lcrypt32 -ladvapi32 \
               -liphlpapi \
@@ -66,35 +97,32 @@ jobs:
           ls -l aslookup.exe
           echo "✅ Compilation successful. Executable is available in the run directory."
           
-      # --- 4. Upload Artifact (For simple job output/temporary storage) ---
+      # --- 5. Upload Artifact (For simple job output/temporary storage) ---
       - name: Upload Windows Executable Artifact
         uses: actions/upload-artifact@v4
         with:
           name: aslookup-windows-artifact
           path: aslookup.exe
 
-      # --- 5. Upload to Gitea Release via API (Shell) ---
-      - name: Upload Binary to Release (DEBUG) 🧐
-        if: startsWith(github.ref, 'refs/tags/') # This must be true for the step to run
+      # --- 6. Upload to Gitea Release via API (Shell) ---
+      - name: Upload Binary to Release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           CODEBERG_PAT: ${{ secrets.CODEBERG_PAT }}        
           API_UPLOAD_BASE: ${{ secrets.UPLOAD_URL_BASE }} 
         run: |
-          # 1. Extract Tag Name and Define File Name
           TAG_NAME=${GITHUB_REF##*/}
           FILE_NAME="aslookup.exe" 
 
           echo "Attempting upload for tag: ${TAG_NAME}"
-          echo "Checking for file: ${FILE_NAME}"
           
           if [ ! -f "${FILE_NAME}" ]; then
               echo "❌ ERROR: Executable file '${FILE_NAME}' not found. Check compilation step."
               exit 1
           fi
 
-          # 2. Fetch the Release ID for the current tag
+          # 1. Fetch the Release ID for the current tag
           GET_URL="${API_UPLOAD_BASE}/tags/${TAG_NAME}"
-          echo "DEBUG: GET Release ID URL: ${GET_URL}"
           
           RELEASE_INFO=$(curl -s -X GET \
               -H "Authorization: token ${CODEBERG_PAT}" \
@@ -105,18 +133,14 @@ jobs:
 
           if [ -z "$RELEASE_ID" ]; then
               echo "❌ ERROR: Could not find Release ID for tag ${TAG_NAME}."
-              echo "DEBUG: API Response for Release ID: ${RELEASE_INFO}" 
-              echo "Please confirm your CODEBERG_PAT token has 'write:repository' permission and UPLOAD_URL_BASE is correct."
               exit 1
           fi
 
           echo "Found Release ID: ${RELEASE_ID}. Uploading asset..."
 
-          # 3. Upload the Asset
+          # 2. Upload the Asset
           UPLOAD_ENDPOINT="${API_UPLOAD_BASE}/${RELEASE_ID}/assets?name=${FILE_NAME}"
-          echo "DEBUG: POST Upload URL: ${UPLOAD_ENDPOINT}" 
 
-          # Use curl with -w "%{http_code}" to check the result code
           UPLOAD_RESPONSE=$(curl -s -w "%{http_code}" -X POST \
               -H "Authorization: token ${CODEBERG_PAT}" \
               -H "Content-Type: application/octet-stream" \
@@ -131,6 +155,5 @@ jobs:
           else
               echo "❌ ERROR: Asset upload failed with HTTP status code ${HTTP_CODE}."
               echo "Response: ${UPLOAD_RESPONSE%???}" 
-              echo "This usually means the CODEBERG_PAT lacks the required write permissions."
               exit 1
           fi
