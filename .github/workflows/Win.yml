@@ -81,27 +81,31 @@ jobs:
           touch mingw-include/curl/mprintf.h
           touch mingw-include/curl/typecheck-gcc.h
           
-      # --- 4. Compile the Windows Executable (FINAL COMMAND) ---
+# --- 4. Compile the Windows Executable (FINAL COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
           # Uses all necessary flags for MinGW cross-compilation
-          # CRITICAL FIX: Removed conflicting macros and added WinSSL linker dependencies.
+          # CRITICAL FIX: Ensure all dependent Win libraries are listed AFTER the custom library (libcurl.a) 
+          # to satisfy unresolved symbols, and include the full set of WinSSL/DNS dependencies.
           x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
               -D_CRT_DECLARE_NONSTDC_NAMES \
               -I. \
               -I./mingw-include \
-              ./lib/libcurl.a -lws2_32 -ldnsapi -lbcrypt -ladvapi32 -lcrypt32 -static
-
-      - name: Verify Windows Executable Size
-        run: ls -l aslookup_win.exe
-          
-      - name: Upload Windows Executable
-        uses: actions/upload-artifact@v4
-        with:
-          name: aslookup-windows
-          path: aslookup_win.exe
+              ./lib/libcurl.a \
+              -lws2_32 \
+              -lwinmm \
+              -lcrypt32 \
+              -lwsock32 \
+              -lmswsock \
+              -ladvapi32 \
+              -luser32 \
+              -lbcrypt \
+              -lwldap32 \
+              -lgo32 \
+              -ldnsapi \
+              -static
 
       - name: Verify Windows Executable Size
         run: ls -l aslookup_win.exe
