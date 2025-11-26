@@ -11,7 +11,7 @@ on:
 
 jobs:
   build_windows:
-    runs-on: codeberg-medium
+    runs-on: codeberg-tiny
     
     steps:
       - name: Checkout Repository
@@ -20,27 +20,19 @@ jobs:
       # --- 1. Install Core MinGW Toolchain and Build Dependencies ---
       - name: Install MinGW Tools and Build Dependencies
         run: |
-          # CRITICAL FIX: Added 'xz-utils' to handle the compressed source archive.
-          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mingw-w64 gcc-mingw-w64-x86-64 build-essential autoconf libtool xz-utils
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mingw-w64 gcc-mingw-w64-x86-64 build-essential autoconf libtool xz-utils git
           
-      # --- 2. Build Libcurl from Source for MinGW (Bypass Git Timeout) ---
+      # --- 2. Build Libcurl from Source for MinGW ---
       - name: Download and Build Static Libcurl for MinGW
         run: |
           export TARGET_HOST=x86_64-w64-mingw32
           export CFLAGS="-m64"
           
-          # CRITICAL FIX: Download compressed source archive from a reliable mirror and extract.
-          # This is the fastest way to get the source and avoids Git timeout issues.
           curl -L "https://curl.se/download/curl-8.4.0.tar.xz" | tar -xJ
-
-          # Change to the extracted directory
           cd curl-8.4.0
           
-          # Generate the missing 'configure' script using the buildconf utility.
-          # This ensures all necessary files for configuration are present.
           ./buildconf
           
-          # Configure for static cross-compilation
           ./configure \
               --host=$TARGET_HOST \
               --build=x86_64-pc-linux-gnu \
@@ -52,52 +44,41 @@ jobs:
               --disable-dict --disable-telnet --disable-samba --disable-mqtt \
               --prefix=$GITHUB_WORKSPACE/curl_build 
 
-          # Compile and install
           make -j$(nproc)
           make install
           
-          # Move the library to the expected location
           mkdir -p $GITHUB_WORKSPACE/lib
           cp $GITHUB_WORKSPACE/curl_build/lib/libcurl.a $GITHUB_WORKSPACE/lib/
           
-          # Copy headers
           mkdir -p $GITHUB_WORKSPACE/mingw-include
           cp -r $GITHUB_WORKSPACE/curl_build/include/* $GITHUB_WORKSPACE/mingw-include/
 
-      # --- 3. Manually Download and Setup Dependencies (Minimal Cleanup) ---
+      # --- 3. Manually Download and Setup Dependencies ---
       - name: Download cJSON and cURL Headers Locally
         run: |
-          # 3a: Setup cJSON (Source files)
           mkdir -p cjson
           curl -L -o cjson/cJSON.c https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
           curl -L -o cjson/cJSON.h https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
-          # 3b: Setup cURL Headers (Dummy files only)
           mkdir -p mingw-include/curl
-          # Create DUMMY files for all known generated/unreliable cURL headers.
           touch mingw-include/curl/system.h
           touch mingw-include/curl/header.h
           touch mingw-include/curl/websockets.h
           touch mingw-include/curl/mprintf.h
           touch mingw-include/curl/typecheck-gcc.h
           
-# --- 4. Compile the Windows Executable (FINAL COMMAND) ---
+      # --- 4. Compile the Windows Executable (FINAL COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # CRITICAL FIX: Added -lpthread to resolve POSIX threading symbols used by libcurl.
-          x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
+          x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
               -D_CRT_DECLARE_NONSTDC_NAMES \
               -I. \
               -I./mingw-include \
               ./lib/libcurl.a \
-              -lcrypt32 \
-              -lws2_32 \
-              -ladvapi32 \
-              -luser32 \
-              -lbcrypt \
-              -lmswsock \
+              -lws2_32 -lwsock32 -lmswsock -luser32 \
+              -lbcrypt -lcrypt32 -ladvapi32 \
               -liphlpapi \
               -ldnsapi \
               -lpthread \
@@ -106,8 +87,19 @@ jobs:
       - name: Verify Windows Executable Size
         run: ls -l aslookup.exe
           
-      - name: Upload Windows Executable
+      # --- 5. Upload Artifact (For simple job output/temporary storage) ---
+      - name: Upload Windows Executable Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aslookup-windows
+          name: aslookup-windows-artifact
           path: aslookup.exe
+
+      # --- 6. CRITICAL FIX: Create and Upload to a Release ---
+      # This step creates a permanent release entry and attaches the binary to it.
+      # It will only run if the workflow was triggered by pushing a tag (e.g., v1.0.0).
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: aslookup.exe
+          prerelease: false # Use 'false' for a final release
