@@ -11,30 +11,35 @@ on:
 
 jobs:
   build_windows:
-    # Changed runs-on from 'codeberg-tiny' to 'codeberg-medium' in your old file, maintaining 'tiny' here based on your latest log
-    runs-on: codeberg-tiny 
+    runs-on: codeberg-tiny # Use the runner specified in your logs
     
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      # --- 1. Checkout Repository (Manual using Shell) ---
+      - name: Manual Checkout
+        run: |
+          # This replaces 'uses: actions/checkout@v4'
+          git clone --depth 1 $GITHUB_SERVER_URL/$GITHUB_REPOSITORY $GITHUB_WORKSPACE
+          cd $GITHUB_WORKSPACE
 
-      # --- 1. Install Core MinGW Toolchain and Build Dependencies ---
+      # --- 2. Install Core MinGW Toolchain and Build Dependencies ---
       - name: Install MinGW Tools and Build Dependencies
         run: |
+          # Install all necessary tools, including build system, mingw, and xz for extraction
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mingw-w64 gcc-mingw-w64-x86-64 build-essential autoconf libtool xz-utils git
           
-      # --- 2. Build Libcurl from Source for MinGW ---
+      # --- 3. Build Libcurl from Source for MinGW ---
       - name: Download and Build Static Libcurl for MinGW
         run: |
           export TARGET_HOST=x86_64-w64-mingw32
           export CFLAGS="-m64"
           
-          # Download source archive from a reliable mirror and extract.
+          # Download source archive (fastest and most reliable method)
           curl -L "https://curl.se/download/curl-8.4.0.tar.xz" | tar -xJ
           cd curl-8.4.0
           
           ./buildconf
           
+          # Configure for static cross-compilation with WinSSL
           ./configure \
               --host=$TARGET_HOST \
               --build=x86_64-pc-linux-gnu \
@@ -49,14 +54,15 @@ jobs:
           make -j$(nproc)
           make install
           
+          # Copy results to final locations
           mkdir -p $GITHUB_WORKSPACE/lib
           cp $GITHUB_WORKSPACE/curl_build/lib/libcurl.a $GITHUB_WORKSPACE/lib/
           
           mkdir -p $GITHUB_WORKSPACE/mingw-include
           cp -r $GITHUB_WORKSPACE/curl_build/include/* $GITHUB_WORKSPACE/mingw-include/
 
-      # --- 3. Manually Download and Setup Dependencies ---
-      - name: Download cJSON and cURL Headers Locally
+      # --- 4. Manually Download and Setup cJSON and Dummy Headers ---
+      - name: Setup cJSON and Dummy Headers
         run: |
           mkdir -p cjson
           curl -L -o cjson/cJSON.c https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c
@@ -69,11 +75,11 @@ jobs:
           touch mingw-include/curl/mprintf.h
           touch mingw-include/curl/typecheck-gcc.h
           
-      # --- 4. Compile the Windows Executable (FINAL SUCCESSFUL LINKER COMMAND) ---
+      # --- 5. Compile the Windows Executable (FINAL WORKING COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # This command includes the final linker fix for pthread, DNS, and WinSSL dependencies.
-          x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
+          # Final linker command to resolve all dependencies: libcurl, WinSSL, DNS, and pthread.
+          x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
               -D_CRT_DECLARE_NONSTDC_NAMES \
@@ -87,10 +93,13 @@ jobs:
               -lpthread \
               -static
               
-      - name: Verify Windows Executable and Confirm Success
+      - name: Verify and Package Executable
         run: |
-          ls -l aslookup.exe
-          echo "✅ Compilation successful. Executable is available in the run directory."
+          ls -l aslookup_win.exe
+          echo "✅ Compilation successful. Creating tarball for easy download."
+          # Create a compressed archive of the executable for easy download from the run log
+          tar -czf aslookup-windows.tar.gz aslookup_win.exe
+          ls -l aslookup-windows.tar.gz
           
       # --- 5. Upload Artifact (For simple job output/temporary storage) ---
       - name: Upload Windows Executable Artifact
