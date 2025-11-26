@@ -72,17 +72,20 @@ jobs:
           cp -r $GITHUB_WORKSPACE/curl_build/include/* $GITHUB_WORKSPACE/mingw-include/
 
 
-      # --- 4. Compile the Windows Executable (FINAL, WORKING COMMAND) ---
-      - name: Compile aslookup.exe for Windows (HTTPS FIX)
+      # --- 4. Compile the Windows Executable (FINAL SCHANNEL FIX) ---
+      - name: Compile aslookup.exe for Windows (Final Schannel Fix)
         run: |
+          # Added compatibility definitions (WINVER, _WIN32_IE) and explicit -lwsock32 link.
           x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
+              -DWINVER=0x0600 \
+              -D_WIN32_IE=0x0600 \
               -DCURL_STATICLIB \
               -D_CRT_DECLARE_NONSTDC_NAMES \
               -I. \
               -I./mingw-include \
               ./lib/libcurl.a \
-              -lws2_32 -lmswsock -luser32 \
+              -lws2_32 -lwsock32 -lmswsock -luser32 \
               -lbcrypt -lcrypt32 -ladvapi32 \
               -liphlpapi \
               -ldnsapi \
@@ -93,12 +96,10 @@ jobs:
         run: |
           ls -l aslookup.exe
           echo "✅ Compilation successful. Creating tarball for easy download."
-          # Create a compressed archive of the executable for easy download
           tar -czf aslookup-windows.tar.gz aslookup.exe
           ls -l aslookup-windows.tar.gz
           
-      # --- 5. Upload Binary to Gitea Release (API Only - Replaces Artifact) ---
-      # This step is the sole method for making the binary available.
+      # --- 5. Upload Binary to Gitea Release (API Only) ---
       - name: Upload Binary to Release
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -107,7 +108,6 @@ jobs:
         run: |
           TAG_NAME=${GITHUB_REF##*/}
           FILE_NAME="aslookup.exe" 
-          # CRITICAL: We upload the original .exe, not the tarball, to the release
 
           echo "Attempting upload for tag: ${TAG_NAME}"
           
