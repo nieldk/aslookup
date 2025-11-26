@@ -57,8 +57,11 @@ jobs:
           make
           make install DESTDIR=$(pwd)/../static prefix=/
           
+          # Create the target directory
           mkdir -p $GITHUB_WORKSPACE/lib
-          cp $GITHUB_WORKSPACE/curl_build/lib/libcurl.a $GITHUB_WORKSPACE/lib/
+          
+          # CRITICAL FIX: Change source path from 'curl_build' to 'static'
+          cp $GITHUB_WORKSPACE/static/lib/libcurl.a $GITHUB_WORKSPACE/lib/
           
 
       # --- 3. Download cJSON and cURL Headers Locally ---
