@@ -102,7 +102,7 @@ jobs:
           # 1. Extract Tag Name and Define File Name
           TAG_NAME=${GITHUB_REF##*/}
           # NOTE: Executable name must match the name from step 4
-          FILE_NAME="aslookup_win.exe" 
+          FILE_NAME="aslookup.exe" 
 
           echo "Attempting upload for tag: ${TAG_NAME}"
           echo "Checking for file: ${FILE_NAME}"
