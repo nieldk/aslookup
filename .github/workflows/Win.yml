@@ -4,44 +4,35 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
+      # CRITICAL: Also run when a tag is pushed (e.g., v1.0.0)
+      - '[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
 
 jobs:
   build_windows:
-    runs-on: codeberg-medium 
+    runs-on: codeberg-tiny 
     
     steps:
-      # --- 1. Checkout Repository (Manual using Shell) ---
-      # Replaces 'uses: actions/checkout@v4' which your runner cannot find.
-      - name: Manual Checkout
-        run: |
-          # Use GITHUB_REPOSITORY to clone the repo from your current server.
-          # Note: The $GITHUB_WORKSPACE environment variable is pre-set by the runner.
-          git clone --depth 1 $GITHUB_SERVER_URL/$GITHUB_REPOSITORY $GITHUB_WORKSPACE
-          cd $GITHUB_WORKSPACE
+      - name: Checkout Repository
+        # We must keep this step, relying on the runner's built-in checkout mechanism
+        uses: actions/checkout@v4
 
-      # --- 2. Install Core MinGW Toolchain and Build Dependencies ---
+      # --- 1. Install Core MinGW Toolchain and Build Dependencies ---
       - name: Install MinGW Tools and Build Dependencies
         run: |
-          # Install all necessary tools, including build system, mingw, and xz for extraction
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mingw-w64 gcc-mingw-w64-x86-64 build-essential autoconf libtool xz-utils git
           
-      # --- 3. Build Libcurl from Source for MinGW ---
+      # --- 2. Build Libcurl from Source for MinGW ---
       - name: Download and Build Static Libcurl for MinGW
         run: |
           export TARGET_HOST=x86_64-w64-mingw32
           export CFLAGS="-m64"
           
-          # Download source archive (fastest and most reliable method)
           curl -L "https://curl.se/download/curl-8.4.0.tar.xz" | tar -xJ
           cd curl-8.4.0
           
           ./buildconf
           
-          # Configure for static cross-compilation with WinSSL
           ./configure \
               --host=$TARGET_HOST \
               --build=x86_64-pc-linux-gnu \
@@ -56,14 +47,13 @@ jobs:
           make -j$(nproc)
           make install
           
-          # Copy results to final locations
           mkdir -p $GITHUB_WORKSPACE/lib
           cp $GITHUB_WORKSPACE/curl_build/lib/libcurl.a $GITHUB_WORKSPACE/lib/
           
           mkdir -p $GITHUB_WORKSPACE/mingw-include
           cp -r $GITHUB_WORKSPACE/curl_build/include/* $GITHUB_WORKSPACE/mingw-include/
 
-      # --- 4. Manually Download and Setup cJSON and Dummy Headers ---
+      # --- 3. Manually Download and Setup cJSON and Dummy Headers ---
       - name: Setup cJSON and Dummy Headers
         run: |
           mkdir -p cjson
@@ -77,7 +67,7 @@ jobs:
           touch mingw-include/curl/mprintf.h
           touch mingw-include/curl/typecheck-gcc.h
           
-      # --- 5. Compile the Windows Executable (FINAL WORKING COMMAND) ---
+      # --- 4. Compile the Windows Executable (FINAL WORKING COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
           # Final linker command to resolve all dependencies: libcurl, WinSSL, DNS, and pthread.
@@ -95,10 +85,57 @@ jobs:
               -lpthread \
               -static
               
-      - name: Verify and Package Executable
+      - name: Verify Executable
+        run: ls -l aslookup_win.exe
+
+      # --- 5. CRITICAL FIX: Upload to Gitea Release via API (Shell) ---
+      # This step replaces the failing softprops/action-gh-release action.
+      - name: Upload Binary to Release
+        if: startsWith(github.ref, 'refs/tags/') # Only run if a tag triggered the workflow
+        env:
+          CODEBERG_PAT: ${{ secrets.CODEBERG_PAT }}        # Custom secret name
+          API_UPLOAD_BASE: ${{ secrets.UPLOAD_URL_BASE }} # Custom secret name
         run: |
-          ls -l aslookup_win.exe
-          echo "✅ Compilation successful. Creating tarball for easy download."
-          # Create a compressed archive of the executable for easy download from the run log
-          tar -czf aslookup-windows.tar.gz aslookup_win.exe
-          ls -l aslookup-windows.tar.gz
+          # 1. Extract Tag Name
+          TAG_NAME=${GITHUB_REF##*/}
+          FILE_NAME="aslookup_win.exe"
+
+          echo "Attempting to create and upload release asset for tag: ${TAG_NAME}"
+
+          # 2. Fetch the Release ID for the current tag
+          # API call to get release info (must use the secret URL)
+          RELEASE_INFO=$(curl -s -X GET \
+              -H "Authorization: token ${CODEBERG_PAT}" \
+              "${API_UPLOAD_BASE}/tags/${TAG_NAME}")
+
+          # Parse the ID from the JSON response
+          RELEASE_ID=$(echo "${RELEASE_INFO}" | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*')
+
+          if [ -z "$RELEASE_ID" ]; then
+              echo "❌ ERROR: Could not find Release ID for tag ${TAG_NAME}."
+              echo "Please ensure you push a valid tag (e.g., 'git push --tags') and that the UPLOAD_URL_BASE secret is correct."
+              exit 1
+          fi
+
+          echo "Found Release ID: ${RELEASE_ID}. Uploading asset..."
+
+          # 3. Upload the Asset
+          # Gitea API: POST /repos/{owner}/{repo}/releases/{id}/assets?name={filename}
+          UPLOAD_ENDPOINT="${API_UPLOAD_BASE}/${RELEASE_ID}/assets?name=${FILE_NAME}"
+
+          UPLOAD_RESPONSE=$(curl -s -w "%{http_code}" -X POST \
+              -H "Authorization: token ${CODEBERG_PAT}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@${FILE_NAME}" \
+              "${UPLOAD_ENDPOINT}")
+          
+          # Check HTTP response code (last 3 digits of UPLOAD_RESPONSE)
+          HTTP_CODE="${UPLOAD_RESPONSE: -3}"
+          
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -le 299 ]; then
+              echo "✅ Successfully uploaded ${FILE_NAME} to release ${TAG_NAME}."
+          else
+              echo "❌ ERROR: Asset upload failed with HTTP status code ${HTTP_CODE}."
+              echo "Response: ${UPLOAD_RESPONSE%???}" # Print response body without HTTP code
+              exit 1
+          fi
