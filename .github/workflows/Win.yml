@@ -72,12 +72,14 @@ jobs:
           touch mingw-include/curl/mprintf.h
           touch mingw-include/curl/typecheck-gcc.h
           
-      # --- 4. Compile the Windows Executable (FINAL WORKING COMMAND) ---
-      - name: Compile aslookup_win.c for Windows
+# --- 4. Compile the Windows Executable (FINAL COMMAND) ---
+      - name: Compile aslookup.exe for Windows (FIXED SSL)
         run: |
+          # CRITICAL FIX: Added -DUSE_SCHANNEL to correctly enable HTTPS support via WinSSL.
           x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
+              -DUSE_SCHANNEL \
               -D_CRT_DECLARE_NONSTDC_NAMES \
               -I. \
               -I./mingw-include \
