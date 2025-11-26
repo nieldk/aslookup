@@ -52,7 +52,6 @@ jobs:
               --disable-shared \
               --enable-static \
               --with-schannel \
-              --without-ssl \
               --without-zlib
           
           make
