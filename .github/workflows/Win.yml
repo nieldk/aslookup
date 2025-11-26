@@ -88,33 +88,45 @@ jobs:
       - name: Verify Executable
         run: ls -l aslookup.exe
 
-      # --- 5. Upload to Gitea Release via API (Shell) ---
-      # Uses the custom secrets you created.
-      - name: Upload Binary to Release
+# --- 5. Upload to Gitea Release via API (Shell) ---
+      - name: Upload Binary to Release (DEBUG) 🧐
         if: startsWith(github.ref, 'refs/tags/') # This must be true for the step to run
         env:
           CODEBERG_PAT: ${{ secrets.CODEBERG_PAT }}        
           API_UPLOAD_BASE: ${{ secrets.UPLOAD_URL_BASE }} 
         run: |
-          # 1. Extract Tag Name
+          # 1. Extract Tag Name and Define File Name
           TAG_NAME=${GITHUB_REF##*/}
-          FILE_NAME="aslookup.exe"
+          # NOTE: Executable name must match the name from step 4
+          FILE_NAME="aslookup_win.exe" 
 
-          echo "Attempting to create and upload release asset for tag: ${TAG_NAME}"
+          echo "Attempting upload for tag: ${TAG_NAME}"
+          echo "Checking for file: ${FILE_NAME}"
+          
+          if [ ! -f "${FILE_NAME}" ]; then
+              echo "❌ ERROR: Executable file '${FILE_NAME}' not found. Check compilation step."
+              exit 1
+          fi
 
           # 2. Fetch the Release ID for the current tag
-          # API call to get release info
+          # Gitea API endpoint to get a release by tag:
+          GET_URL="${API_UPLOAD_BASE}/tags/${TAG_NAME}"
+          
+          # --- DEBUG OUTPUT ---
+          echo "DEBUG: GET Release ID URL: ${GET_URL}"
+          
           RELEASE_INFO=$(curl -s -X GET \
               -H "Authorization: token ${CODEBERG_PAT}" \
-              "${API_UPLOAD_BASE}/tags/${TAG_NAME}")
+              "${GET_URL}")
 
           # Parse the ID from the JSON response
-          # We use head -1 to ensure we only get the first ID found
           RELEASE_ID=$(echo "${RELEASE_INFO}" | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*')
 
           if [ -z "$RELEASE_ID" ]; then
               echo "❌ ERROR: Could not find Release ID for tag ${TAG_NAME}."
-              echo "Please ensure you pushed a valid tag (e.g., 'git push --tags') and that the UPLOAD_URL_BASE secret is correct."
+              # --- CRITICAL DEBUG OUTPUT ---
+              echo "DEBUG: API Response for Release ID: ${RELEASE_INFO}" 
+              echo "Please confirm your CODEBERG_PAT token has 'write:repository' permission and UPLOAD_URL_BASE is correct (e.g., https://codeberg.org/api/v1/repos/USER/REPO/releases)."
               exit 1
           fi
 
@@ -122,6 +134,9 @@ jobs:
 
           # 3. Upload the Asset
           UPLOAD_ENDPOINT="${API_UPLOAD_BASE}/${RELEASE_ID}/assets?name=${FILE_NAME}"
+          
+          # --- DEBUG OUTPUT ---
+          echo "DEBUG: POST Upload URL: ${UPLOAD_ENDPOINT}" 
 
           # Use curl with -w "%{http_code}" to check the result code
           UPLOAD_RESPONSE=$(curl -s -w "%{http_code}" -X POST \
@@ -132,6 +147,16 @@ jobs:
           
           # Check HTTP response code 
           HTTP_CODE="${UPLOAD_RESPONSE: -3}"
+          
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -le 299 ]; then
+              echo "✅ Successfully uploaded ${FILE_NAME} to release ${TAG_NAME}."
+          else
+              echo "❌ ERROR: Asset upload failed with HTTP status code ${HTTP_CODE}."
+              # --- CRITICAL DEBUG OUTPUT ---
+              echo "Response: ${UPLOAD_RESPONSE%???}" 
+              echo "This usually means the CODEBERG_PAT lacks the required write permissions."
+              exit 1
+          fi
           
           if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -le 299 ]; then
               echo "✅ Successfully uploaded ${FILE_NAME} to release ${TAG_NAME}."
