@@ -27,11 +27,11 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mingw-w64 gcc-mingw-w64-x86-64 build-essential autoconf libtool xz-utils git
           
-# --- 2. Build Libcurl from Source for MinGW (FIXED SSL) ---
+# --- 2. Build Libcurl from Source for MinGW (FIXED SSL CONFLICT) ---
       - name: Download and Build Static Libcurl for MinGW
         run: |
           export TARGET_HOST=x86_64-w64-mingw32
-          # CRITICAL FIX: Add -DUSE_SCHANNEL to CFLAGS for the curl library compilation
+          # CRITICAL: Add -DUSE_SCHANNEL to CFLAGS for the curl library's internal compilation.
           export CFLAGS="-m64 -DUSE_SCHANNEL" 
           
           curl -L "https://curl.se/download/curl-8.4.0.tar.xz" | tar -xJ
@@ -44,8 +44,7 @@ jobs:
               --build=x86_64-pc-linux-gnu \
               --disable-shared \
               --enable-static \
-              --without-ssl \
-              --with-schannel \
+              --with-schannel \ # NO --without-ssl HERE: Forces Windows Schannel SSL
               --disable-ldap --disable-ldaps --disable-ftp --disable-file --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-rtsp \
               --disable-dict --disable-telnet --disable-samba --disable-mqtt \
               --prefix=$GITHUB_WORKSPACE/curl_build 
@@ -76,6 +75,7 @@ jobs:
 # --- 4. Compile the Windows Executable (Final Linker Command) ---
       - name: Compile aslookup.exe for Windows
         run: |
+          # This command includes the final linker fix for pthread, DNS, and WinSSL dependencies.
           x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
