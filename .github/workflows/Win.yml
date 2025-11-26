@@ -84,8 +84,8 @@ jobs:
 # --- 4. Compile the Windows Executable (FINAL COMMAND) ---
       - name: Compile aslookup_win.c for Windows
         run: |
-          # CRITICAL FIX: Simplified linker flags and enforced correct order: [Objects] [Custom Libs] [System Libs]
-          x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cjson/cJSON.c \
+          # CRITICAL FIX: Added -liphlpapi to resolve DNS/networking dependencies.
+          x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
               -D_CRT_DECLARE_NONSTDC_NAMES \
@@ -98,14 +98,15 @@ jobs:
               -luser32 \
               -lbcrypt \
               -lmswsock \
+              -liphlpapi \
               -ldnsapi \
               -static
               
       - name: Verify Windows Executable Size
-        run: ls -l aslookup_win.exe
+        run: ls -l aslookup.exe
           
       - name: Upload Windows Executable
         uses: actions/upload-artifact@v4
         with:
           name: aslookup-windows
-          path: aslookup_win.exe
+          path: aslookup.exe
