@@ -298,7 +298,8 @@ void fetch_bgpview_info(const char *asn, FILE *output) {
         }
         curl_easy_cleanup(curl);
     }
-    free(chunk->memory);
+    // FIX: Changed 'chunk->memory' to 'chunk.memory'
+    free(chunk.memory);
 }
 
 // Main function
