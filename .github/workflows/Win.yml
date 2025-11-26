@@ -71,7 +71,7 @@ jobs:
       - name: Compile aslookup_win.c for Windows
         run: |
           # Final linker command to resolve all dependencies: libcurl, WinSSL, DNS, and pthread.
-          x86_64-w64-mingw32-gcc -o aslookup_win.exe aslookup_win.c cjson/cJSON.c \
+          x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
               -D_CRT_DECLARE_NONSTDC_NAMES \
@@ -86,7 +86,7 @@ jobs:
               -static
               
       - name: Verify Executable
-        run: ls -l aslookup_win.exe
+        run: ls -l aslookup.exe
 
       # --- 5. CRITICAL FIX: Upload to Gitea Release via API (Shell) ---
       # This step replaces the failing softprops/action-gh-release action.
@@ -98,7 +98,7 @@ jobs:
         run: |
           # 1. Extract Tag Name
           TAG_NAME=${GITHUB_REF##*/}
-          FILE_NAME="aslookup_win.exe"
+          FILE_NAME="aslookup.exe"
 
           echo "Attempting to create and upload release asset for tag: ${TAG_NAME}"
 
