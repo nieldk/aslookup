@@ -73,8 +73,8 @@ jobs:
           curl -L -o cjson/cJSON.h https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h
           
           # 3b: Setup cURL Headers (Local injection)
-          mkdir -p mingw-include
-          cp -r $GITHUB_WORKSPACE/curl_build/include/* $GITHUB_WORKSPACE/mingw-include/
+          mkdir -p mingw-include/curl
+          cp $GITHUB_WORKSPACE/static/include/curl/* $GITHUB_WORKSPACE/mingw-include/curl/
 
 
       # --- 4. Compile the Windows Executable (FINAL SCHANNEL FIX) ---
