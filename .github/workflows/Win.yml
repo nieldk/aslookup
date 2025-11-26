@@ -41,7 +41,7 @@ jobs:
           
           ./buildconf
           
-          # CRITICAL FIX 2: Removed the conflicting --without-ssl flag.
+          # Configure with Schannel, static linking, and without unnecessary protocols
           ./configure \
               --host=$TARGET_HOST \
               --build=x86_64-pc-linux-gnu \
