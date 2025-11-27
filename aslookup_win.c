@@ -9,6 +9,8 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windns.h>
+#include <Dnsapi.h> // Sometimes required for the constants
+
 // --- End Windows-specific Headers ---
 
 #include "cjson/cJSON.h" // Local cJSON header
@@ -24,6 +26,9 @@
 #ifndef VERSION
 #define VERSION "unknown"
 #endif
+
+#define _WIN32_WINNT 0x0600 // Ensure these constants are defined
+#include <stdio.h>
 
 void print_installed_version() {
     printf("aslookup version: %s\n", VERSION);
@@ -86,27 +91,21 @@ char *get_asn_from_ip(const char *ip) {
     int a, b, c, d;
     if (sscanf(ip, "%d.%d.%d.%d", &a, &b, &c, &d) != 4) return NULL;
     char query[256];
-    // Construct the reverse DNS query for Team Cymru's ASN service
     snprintf(query, sizeof(query), "%d.%d.%d.%d.origin.asn.cymru.com", d, c, b, a);
     
     PDNS_RECORD pDnsRecord;
-    // Use DnsQuery_A for Windows DNS lookup (A is for ANSI/ASCII strings)
+    // DNS_TYPE_TXT fix: ensure _WIN32_WINNT is defined high enough (e.g., 0x0600)
     DNS_STATUS status = DnsQuery_A(query, DNS_TYPE_TXT, DNS_QUERY_STANDARD, NULL, &pDnsRecord, NULL);
     
     if (status != ERROR_SUCCESS) {
-        // fprintf(stderr, "DnsQuery failed with status: %lu\n", status);
         return NULL;
     }
 
-    // Loop through the records to find the TXT record
     for (PDNS_RECORD pRec = pDnsRecord; pRec != NULL; pRec = pRec->pNext) {
         if (pRec->wType == DNS_TYPE_TXT) {
-            // The TXT record data is a list of strings.
-            // Team Cymru returns a single string like "1234 | 1.2.3.0/24 | ..."
-            // We need to parse the first token (the ASN).
-            if (pRec->Data.Txt.cStringArray[0]) {
-                // Use sscanf to extract the first token (the ASN)
-                sscanf(pRec->Data.Txt.cStringArray[0], "%15s", asn);
+            // FIX: Use pStringArray instead of cStringArray for MinGW
+            if (pRec->Data.Txt.pStringArray[0]) {
+                sscanf(pRec->Data.Txt.pStringArray[0], "%15s", asn);
                 DnsFree(pDnsRecord, DnsFreeRecordList);
                 return asn;
             }
