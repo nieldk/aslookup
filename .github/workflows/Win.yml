@@ -80,22 +80,21 @@ jobs:
       # --- 4. Compile the Windows Executable (FINAL SCHANNEL FIX) ---
       - name: Compile aslookup.exe for Windows (Final Schannel Fix)
         run: |
-          # Define the system include path for the cross-compiler
+          # The TARGET_HOST is x86_64-w64-mingw32
           SYS_INCLUDE_PATH=/usr/x86_64-w64-mingw32/include 
           
-          # Use the target-specific GCC command
           x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
-              -D_WIN32_WINNT=0x0600 \
+              -D_WIN32_WINNT=0x0600 \ # CRITICAL: Defines the API version
               -DCURL_STATICLIB \
               -D_CRT_DECLARE_NONSTDC_NAMES \
               -I. \
               -I./mingw-include \
-              -I${SYS_INCLUDE_PATH} \
+              -I${SYS_INCLUDE_PATH} \  # CRITICAL: Path to find Dnsapi.h
               ./lib/libcurl.a \
               -lws2_32 -lmswsock -luser32 \
               -lbcrypt -lcrypt32 -ladvapi32 \
               -liphlpapi \
-              -ldnsapi \
+              -ldnsapi \ # CRITICAL: Links the DnsQuery_A function
               -lwldap32 \
               -lpthread \
               -static
