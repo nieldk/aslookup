@@ -83,16 +83,16 @@ jobs:
           # Define the most common MinGW-w64 system include path
           SYS_INCLUDE_PATH=/usr/x86_64-w64-mingw32/include 
           
-          # We use x86_64-w64-mingw32-gcc to cross-compile
+          # Use x86_64-w64-mingw32-gcc to cross-compile
           x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
-              -D_WIN32_WINNT=0x0600 \              # Defines the Windows API version
+              -D_WIN32_WINNT=0x0600 \              # Defines the Windows API version for DNS constants
               -DCURL_STATICLIB \                   # Required for static libcurl
               -D_CRT_DECLARE_NONSTDC_NAMES \
-              -I. \                                # CRITICAL: Include current directory (for cjson/cJSON.h)
-              -I./cjson \                          # NEW/CONFIRM: Include the cjson subdirectory (for cjson.h)
-              -I$GITHUB_WORKSPACE/static/include \ # Include path for libcurl headers (e.g., curl/curl.h)
-              -I${SYS_INCLUDE_PATH} \              # CRITICAL: Include path for Windows system headers (e.g., Dnsapi.h)
-              ./lib/libcurl.a \
+              -I. \                                # Include current directory (for cjson.h, if located here)
+              -I./cjson \                          # Include cjson subdirectory (if cjson.h is here)
+              -I$GITHUB_WORKSPACE/static/include \ # CRITICAL: Path for curl/curl.h headers
+              -I${SYS_INCLUDE_PATH} \              # CRITICAL: Path for Windows system headers (Dnsapi.h)
+              ./lib/libcurl.a \                    # Static library file
               -lws2_32 -lmswsock -luser32 \
               -lbcrypt -lcrypt32 -ladvapi32 \
               -liphlpapi \
