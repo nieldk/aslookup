@@ -80,23 +80,23 @@ jobs:
       # --- 4. Compile the Windows Executable (FINAL SCHANNEL FIX) ---
       - name: Compile aslookup.exe for Windows (Final Schannel Fix)
         run: |
+          # Define the most common MinGW-w64 system include path
           SYS_INCLUDE_PATH=/usr/x86_64-w64-mingw32/include 
           
+          # We use x86_64-w64-mingw32-gcc to cross-compile
           x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
-              -D_WIN32_WINNT=0x0600 \
-              -DCURL_STATICLIB \
+              -D_WIN32_WINNT=0x0600 \              # Defines the Windows API version
+              -DCURL_STATICLIB \                   # Required for static libcurl
               -D_CRT_DECLARE_NONSTDC_NAMES \
-              -I. \
-              -I./mingw-include \ # This is where cjson.h is
-              -I${SYS_INCLUDE_PATH} \
-              # 🆕 CRITICAL FIX: Add the root 'static/include' directory 
-              # where the 'curl' folder lives.
-              -I$GITHUB_WORKSPACE/static/include \ 
+              -I. \                                # CRITICAL: Include current directory (for cjson/cJSON.h)
+              -I./cjson \                          # NEW/CONFIRM: Include the cjson subdirectory (for cjson.h)
+              -I$GITHUB_WORKSPACE/static/include \ # Include path for libcurl headers (e.g., curl/curl.h)
+              -I${SYS_INCLUDE_PATH} \              # CRITICAL: Include path for Windows system headers (e.g., Dnsapi.h)
               ./lib/libcurl.a \
               -lws2_32 -lmswsock -luser32 \
               -lbcrypt -lcrypt32 -ladvapi32 \
               -liphlpapi \
-              -ldnsapi \
+              -ldnsapi \                           # Links DnsQuery_A
               -lwldap32 \
               -lpthread \
               -static
