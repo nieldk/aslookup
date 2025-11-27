@@ -1,420 +1,343 @@
+// aslookup_win.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <curl/curl.h>
-#include <cjson/cJSON.h>
 
-// --- Windows-Specific Headers ---
+// --- Windows-specific Headers ---
+#include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <windows.h>
-#include <windns.h> // For DnsQuery
+#include <windns.h>
+// --- End Windows-specific Headers ---
 
-// Undefining conflicting types that might be defined by resolv.h if it was included
-#ifdef __GNUC__
-#undef ns_msg
-#undef ns_rr
-#endif
+#include "cjson/cJSON.h" // Local cJSON header
 
-// --- Unix-like functions replaced with standard or equivalent for Windows ---
-// NOTE: strtok_r is not strictly thread-safe with this macro, but works for this single-threaded use.
-#define strtok_r(s, delim, saveptr) strtok(s, delim)
-#define getaddrinfo(domain, service, hints, res) GetAddrInfo(domain, service, hints, res)
-#define freeaddrinfo(res) FreeAddrInfo(res)
-
-// --- Color definitions for Windows Console API ---
-#define COLOR_GREEN FOREGROUND_GREEN | FOREGROUND_INTENSITY
-#define COLOR_CYAN FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_INTENSITY
-#define COLOR_RED FOREGROUND_RED | FOREGROUND_INTENSITY
-#define COLOR_YELLOW FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY
-#define COLOR_WHITE FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY
-#define COLOR_RESET 0 // This will be handled by restoring attributes
+// Define colors, though they might not work perfectly in all Windows consoles
+#define GREEN "\033[32m"
+#define CYAN "\033[36m"
+#define RED "\033[31m"
+#define YELLOW "\033[33m"
+#define WHITE "\033[37m"
+#define RESET "\033[0m"
 
 #ifndef VERSION
 #define VERSION "unknown"
 #endif
 
-// Global variable for Windows Console handle
-HANDLE hConsole = NULL;
-WORD saved_attributes = 0;
-
-void set_console_color(WORD color) {
-    if (hConsole) {
-        SetConsoleTextAttribute(hConsole, color);
-    }
+void print_installed_version() {
+    printf("aslookup version: %s\n", VERSION);
 }
 
-void reset_console_color() {
-    if (hConsole) {
-        SetConsoleTextAttribute(hConsole, saved_attributes);
-    }
-}
-
-// Memory structure for cURL callbacks
+// Memory struct and callback remain the same (curl compatible)
 struct MemoryStruct {
     char *memory;
     size_t size;
 };
 
-// cURL callback function to store received data
-static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
-    size_t realsize = size * nmemb;
-    struct MemoryStruct *chunk = (struct MemoryStruct *)userp;
-
-    char *ptr = realloc(chunk->memory, chunk->size + realsize + 1);
-    if (ptr == NULL) {
-        fprintf(stderr, "not enough memory (realloc returned NULL)\n");
-        return 0;
-    }
-
-    chunk->memory = ptr;
-    memcpy(&(chunk->memory[chunk->size]), contents, realsize);
-    chunk->size += realsize;
-    chunk->memory[chunk->size] = 0;
-
-    return realsize;
+size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+    size_t total = size * nmemb;
+    struct MemoryStruct *mem = (struct MemoryStruct *)userp;
+    char *ptr = realloc(mem->memory, mem->size + total + 1);
+    if (!ptr) return 0;
+    mem->memory = ptr;
+    memcpy(&(mem->memory[mem->size]), contents, total);
+    mem->size += total;
+    mem->memory[mem->size] = 0;
+    return total;
 }
 
-// Function to resolve a domain name to an IP address (using Windows API)
-char *resolve_domain_to_ip(const char *domain) {
-    struct addrinfo hints, *res, *p;
-    char ipstr[INET6_ADDRSTRLEN];
-    char *resolved_ip = NULL;
-    int status;
+// Function to print latest GitHub version (no change needed)
+void print_latest_github_version() {
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        printf("curl init failed\n");
+        return;
+    }
+    struct MemoryStruct chunk = {malloc(1), 0};
+    curl_easy_setopt(curl, CURLOPT_URL, "https://api.github.com/repos/nieldk/aslookup/releases/latest");
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "aslookup-c-client/1.0");
+    CURLcode res = curl_easy_perform(curl);
+    if (res == CURLE_OK) {
+        cJSON *root = cJSON_Parse(chunk.memory);
+        if (root) {
+            cJSON *tag = cJSON_GetObjectItem(root, "tag_name");
+            if (tag && tag->valuestring) {
+                printf("Latest GitHub release: %s\n", tag->valuestring);
+            } else {
+                printf("Could not find version info in GitHub release.\n");
+            }
+            cJSON_Delete(root);
+        } else {
+            printf("Failed to parse JSON from GitHub.\n");
+        }
+    } else {
+        printf("Failed to fetch release info from GitHub: %s\n", curl_easy_strerror(res));
+    }
+    curl_easy_cleanup(curl);
+    free(chunk.memory);
+}
 
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC; // AF_INET or AF_INET6 to force version
-    hints.ai_socktype = SOCK_STREAM;
-
-    // GetAddrInfoA attempts to resolve the domain name
-    if ((status = GetAddrInfoA(domain, NULL, &hints, &res)) != 0) {
+// --- Windows-specific DNS Lookup for ASN ---
+char *get_asn_from_ip(const char *ip) {
+    static char asn[16] = {0};
+    int a, b, c, d;
+    if (sscanf(ip, "%d.%d.%d.%d", &a, &b, &c, &d) != 4) return NULL;
+    char query[256];
+    // Construct the reverse DNS query for Team Cymru's ASN service
+    snprintf(query, sizeof(query), "%d.%d.%d.%d.origin.asn.cymru.com", d, c, b, a);
+    
+    PDNS_RECORD pDnsRecord;
+    // Use DnsQuery_A for Windows DNS lookup (A is for ANSI/ASCII strings)
+    DNS_STATUS status = DnsQuery_A(query, DNS_TYPE_TXT, DNS_QUERY_STANDARD, NULL, &pDnsRecord, NULL);
+    
+    if (status != ERROR_SUCCESS) {
+        // fprintf(stderr, "DnsQuery failed with status: %lu\n", status);
         return NULL;
     }
 
-    for (p = res; p != NULL; p = p->ai_next) {
-        void *addr;
-        // get the pointer to the address itself,
-        // different fields in IPv4 and IPv6:
-        if (p->ai_family == AF_INET) { // IPv4
-            struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
-            addr = &(ipv4->sin_addr);
-            // Use inet_ntop to convert IP to string
-            InetNtopA(AF_INET, addr, ipstr, sizeof(ipstr));
-            resolved_ip = strdup(ipstr);
-            break; // We only need the first valid IPv4 address
-        }
-        // IPv6 lookup is also possible, but sticking to IPv4 for simplicity for now
-    }
-
-    FreeAddrInfo(res);
-
-    return resolved_ip;
-}
-
-// Function 1: Get ASN from IP
-char *get_asn_from_ip(const char *ip_address) {
-    CURL *curl;
-    CURLcode res;
-    struct MemoryStruct chunk;
-    char url[256];
-    char *asn = NULL;
-
-    chunk.memory = malloc(1);
-    chunk.size = 0;
-
-    snprintf(url, sizeof(url), "https://api.bgpview.io/ip/%s", ip_address);
-
-    curl = curl_easy_init();
-    if (curl) {
-        // --- CRITICAL FIX: Force TLS 1.2 for MinGW Schannel compatibility ---
-        curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
-        // -------------------------------------------------------------------
-        curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "aslookup-win/1.0");
-
-        res = curl_easy_perform(curl);
-        if (res == CURLE_OK && chunk.size > 0) {
-            cJSON *json = cJSON_Parse(chunk.memory);
-            if (json) {
-                cJSON *data = cJSON_GetObjectItemCaseSensitive(json, "data");
-                if (data) {
-                    cJSON *asn_data = cJSON_GetObjectItemCaseSensitive(data, "asn");
-                    if (asn_data && cJSON_IsNumber(asn_data)) {
-                        char asn_str[32];
-                        snprintf(asn_str, sizeof(asn_str), "%d", asn_data->valueint);
-                        asn = strdup(asn_str);
-                    }
-                }
-                cJSON_Delete(json);
-            } else {
-                // Not a valid JSON response (likely the issue you are seeing)
-                // We don't print anything here to avoid mixing output
+    // Loop through the records to find the TXT record
+    for (PDNS_RECORD pRec = pDnsRecord; pRec != NULL; pRec = pRec->pNext) {
+        if (pRec->wType == DNS_TYPE_TXT) {
+            // The TXT record data is a list of strings.
+            // Team Cymru returns a single string like "1234 | 1.2.3.0/24 | ..."
+            // We need to parse the first token (the ASN).
+            if (pRec->Data.Txt.cStringArray[0]) {
+                // Use sscanf to extract the first token (the ASN)
+                sscanf(pRec->Data.Txt.cStringArray[0], "%15s", asn);
+                DnsFree(pDnsRecord, DnsFreeRecordList);
+                return asn;
             }
         }
-        curl_easy_cleanup(curl);
     }
-    free(chunk.memory);
-    return asn;
+
+    DnsFree(pDnsRecord, DnsFreeRecordList);
+    return NULL;
 }
 
-// Function 2: Fetch IP Ranges (Prefixes)
+// The rest of the API fetching functions (curl and cJSON based) remain the same
 void fetch_ip_ranges(const char *asn, FILE *output) {
-    CURL *curl;
-    CURLcode res;
-    struct MemoryStruct chunk;
+    CURL *curl = curl_easy_init();
+    if (!curl) return;
     char url[256];
-
-    chunk.memory = malloc(1);
-    chunk.size = 0;
-
-    snprintf(url, sizeof(url), "https://api.bgpview.io/asn/%s/prefixes", asn);
-
-    curl = curl_easy_init();
-    if (curl) {
-        // --- CRITICAL FIX: Force TLS 1.2 for MinGW Schannel compatibility ---
-        curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
-        // -------------------------------------------------------------------
-        curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "aslookup-win/1.0");
-
-        res = curl_easy_perform(curl);
-        if (res == CURLE_OK && chunk.size > 0) {
-            cJSON *json = cJSON_Parse(chunk.memory);
-            if (json) {
-                cJSON *data = cJSON_GetObjectItemCaseSensitive(json, "data");
-                if (data) {
-                    cJSON *asn_details = cJSON_GetObjectItemCaseSensitive(data, "asn");
-                    if (asn_details) {
-                        cJSON *name = cJSON_GetObjectItemCaseSensitive(asn_details, "name");
-                        cJSON *country_code = cJSON_GetObjectItemCaseSensitive(asn_details, "country_code");
-                        
-                        set_console_color(COLOR_CYAN);
-                        fprintf(output, "IP Ranges:\n");
-                        fprintf(output, "ASN: %s, Name: %s, Country: %s\n", asn, 
-                            cJSON_IsString(name) ? name->valuestring : "N/A", 
-                            cJSON_IsString(country_code) ? country_code->valuestring : "N/A");
-                        reset_console_color();
-                    }
-
-                    cJSON *ipv4_prefixes = cJSON_GetObjectItemCaseSensitive(data, "ipv4_prefixes");
-                    if (ipv4_prefixes && cJSON_IsArray(ipv4_prefixes)) {
-                        cJSON *prefix_item = NULL;
-                        fprintf(output, "--- IPv4 Prefixes ---\n");
-                        cJSON_ArrayForEach(prefix_item, ipv4_prefixes) {
-                            cJSON *prefix = cJSON_GetObjectItemCaseSensitive(prefix_item, "prefix");
-                            if (prefix && cJSON_IsString(prefix)) {
-                                fprintf(output, "%s\n", prefix->valuestring);
-                            }
-                        }
-                    }
-                    
-                    cJSON *ipv6_prefixes = cJSON_GetObjectItemCaseSensitive(data, "ipv6_prefixes");
-                    if (ipv6_prefixes && cJSON_IsArray(ipv6_prefixes)) {
-                        cJSON *prefix_item = NULL;
-                        fprintf(output, "--- IPv6 Prefixes ---\n");
-                        cJSON_ArrayForEach(prefix_item, ipv6_prefixes) {
-                            cJSON *prefix = cJSON_GetObjectItemCaseSensitive(prefix_item, "prefix");
-                            if (prefix && cJSON_IsString(prefix)) {
-                                fprintf(output, "%s\n", prefix->valuestring);
-                            }
-                        }
-                    }
-                }
-                cJSON_Delete(json);
-            } else {
-                set_console_color(COLOR_RED);
-                fprintf(output, "Failed to parse JSON for IP Ranges.\n");
-                reset_console_color();
-            }
-        } else {
-            set_console_color(COLOR_RED);
-            fprintf(output, "Failed to fetch IP Ranges for ASN %s (cURL error: %s).\n", asn, curl_easy_strerror(res));
-            reset_console_color();
-        }
-        curl_easy_cleanup(curl);
+    snprintf(url, sizeof(url), "https://api.hackertarget.com/aslookup/?q=AS%s", asn);
+    struct MemoryStruct chunk = {malloc(1), 0};
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
+    CURLcode res = curl_easy_perform(curl);
+    if (res == CURLE_OK) {
+        fprintf(output, CYAN "\nIP Ranges:\n" WHITE "%s\n" RESET, chunk.memory);
+    } else {
+        fprintf(stderr, RED "Error fetching IP ranges: %s\n" RESET, curl_easy_strerror(res));
     }
+    curl_easy_cleanup(curl);
     free(chunk.memory);
 }
 
-// Function 3: Fetch ASN Info (includes contact details)
 void fetch_bgpview_info(const char *asn, FILE *output) {
-    CURL *curl;
-    CURLcode res;
-    struct MemoryStruct chunk;
+    CURL *curl = curl_easy_init();
+    if (!curl) return;
     char url[256];
-
-    chunk.memory = malloc(1);
-    chunk.size = 0;
-
     snprintf(url, sizeof(url), "https://api.bgpview.io/asn/%s", asn);
-
-    set_console_color(COLOR_YELLOW);
-    fprintf(output, "\nASN Information:\n");
-    reset_console_color();
-
-    curl = curl_easy_init();
-    if (curl) {
-        // --- CRITICAL FIX: Force TLS 1.2 for MinGW Schannel compatibility ---
-        curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
-        // -------------------------------------------------------------------
-        curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "aslookup-win/1.0");
-
-        res = curl_easy_perform(curl);
-        if (res == CURLE_OK && chunk.size > 0) {
-            cJSON *json = cJSON_Parse(chunk.memory);
-            if (json) {
-                cJSON *data = cJSON_GetObjectItemCaseSensitive(json, "data");
-                if (data) {
-                    cJSON *abuse = cJSON_GetObjectItemCaseSensitive(data, "abuse");
-                    cJSON *emails = cJSON_GetObjectItemCaseSensitive(data, "emails");
-                    
-                    if (abuse && cJSON_IsObject(abuse)) {
-                        cJSON *abuse_email = cJSON_GetObjectItemCaseSensitive(abuse, "email");
-                        if (abuse_email && cJSON_IsString(abuse_email)) {
-                            fprintf(output, "Abuse Contact: %s\n", abuse_email->valuestring);
-                        }
-                    }
-                    
-                    if (emails && cJSON_IsArray(emails)) {
-                        cJSON *email_item = NULL;
-                        cJSON_ArrayForEach(email_item, emails) {
-                            if (cJSON_IsString(email_item)) {
-                                fprintf(output, "Technical Contact: %s\n", email_item->valuestring);
-                            }
-                        }
-                    }
-                }
-                cJSON_Delete(json);
-            } else {
-                set_console_color(COLOR_RED);
-                fprintf(output, "Failed to parse JSON for ASN Info.\n");
-                reset_console_color();
-            }
-        } else {
-            set_console_color(COLOR_RED);
-            fprintf(output, "Failed to fetch ASN Info for ASN %s (cURL error: %s).\n", asn, curl_easy_strerror(res));
-            reset_console_color();
-        }
+    struct MemoryStruct chunk = {malloc(1), 0};
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "asnlookup-c-client/1.0");
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+        fprintf(stderr, RED "Error fetching BGPView info: %s\n" RESET, curl_easy_strerror(res));
         curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return;
     }
-    // FIX: Changed 'chunk->memory' to 'chunk.memory' in the previous step
+    cJSON *root = cJSON_Parse(chunk.memory);
+    if (!root) {
+        fprintf(stderr, RED "Failed to parse JSON.\n" RESET);
+        curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return;
+    }
+    cJSON *data = cJSON_GetObjectItem(root, "data");
+    if (!data) {
+        fprintf(stderr, RED "No data in JSON.\n" RESET);
+        cJSON_Delete(root);
+        curl_easy_cleanup(curl);
+        free(chunk.memory);
+        return;
+    }
+    fprintf(output, GREEN "\nASN Number: %d\n", cJSON_GetObjectItem(data, "asn")->valueint);
+    fprintf(output, GREEN "Name: %s\n", cJSON_GetObjectItem(data, "name")->valuestring);
+    fprintf(output, GREEN "Description: %s\n", cJSON_GetObjectItem(data, "description_short")->valuestring);
+    fprintf(output, GREEN "Country: %s\n", cJSON_GetObjectItem(data, "country_code")->valuestring);
+    fprintf(output, GREEN "Website: %s\n", cJSON_GetObjectItem(data, "website")->valuestring);
+    cJSON *emails = cJSON_GetObjectItem(data, "email_contacts");
+    if (emails) {
+        fprintf(output, CYAN "\nEmail Contacts:\n");
+        for (int i = 0; i < cJSON_GetArraySize(emails); i++) {
+            fprintf(output, WHITE " - %s\n", cJSON_GetArrayItem(emails, i)->valuestring);
+        }
+    }
+    cJSON *abuse = cJSON_GetObjectItem(data, "abuse_contacts");
+    if (abuse) {
+        fprintf(output, RED "\nAbuse Contacts:\n");
+        for (int i = 0; i < cJSON_GetArraySize(abuse); i++) {
+            fprintf(output, WHITE " - %s\n", cJSON_GetArrayItem(abuse, i)->valuestring);
+        }
+    }
+    cJSON *address = cJSON_GetObjectItem(data, "owner_address");
+    if (address) {
+        fprintf(output, YELLOW "\nOwner Address:\n");
+        for (int i = 0; i < cJSON_GetArraySize(address); i++) {
+            fprintf(output, WHITE " %s\n", cJSON_GetArrayItem(address, i)->valuestring);
+        }
+    }
+    fprintf(output, GREEN "Traffic Ratio: %s\n", cJSON_GetObjectItem(data, "traffic_ratio")->valuestring);
+    fprintf(output, GREEN "Updated: %s\n", cJSON_GetObjectItem(data, "date_updated")->valuestring);
+    cJSON_Delete(root);
+    curl_easy_cleanup(curl);
     free(chunk.memory);
 }
 
-// Main function
-int main(int argc, char **argv) {
-    // Windows Console initialization
-    hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (hConsole != INVALID_HANDLE_VALUE) {
-        CONSOLE_SCREEN_BUFFER_INFO csbi;
-        GetConsoleScreenBufferInfo(hConsole, &csbi);
-        saved_attributes = csbi.wAttributes;
-    }
+void print_help(const char *progname, FILE *output) {
+    fprintf(output, CYAN "Usage: %s <options>\n", progname);
+    fprintf(output, CYAN "Options:\n");
+    fprintf(output, WHITE " -i <IP[,IP,...]> Specify one or more IP addresses (comma-separated)\n");
+    fprintf(output, WHITE " -d <domain[,domain,...]> Specify one or more domain names (comma-separated)\n");
+    fprintf(output, WHITE " -f <file> Save output to a formatted text file\n");
+    fprintf(output, WHITE " --help Show this help message\n");
+    fprintf(output, WHITE " --version Show installed version\n");
+    fprintf(output, WHITE " --ghversion Show latest GitHub release version\n");
+}
 
-    // --- CRITICAL FIX 1: Initialize Winsock (required for GetAddrInfo/DNS) ---
-    WSADATA wsaData;
-    int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
-    if (iResult != 0) {
-        fprintf(stderr, "WSAStartup failed: %d\n", iResult);
-        return 1;
-    }
-    // -------------------------------------------------------------------------
-
-    char *ips = NULL; 
-    char *domains = NULL; 
-    FILE *output = stdout; 
-
-    // --- CRITICAL FIX 2: Implement robust command-line argument parsing ---
-    if (argc < 3) {
-        set_console_color(COLOR_WHITE);
-        fprintf(output, "Usage: %s -d <domain1,domain2> -i <ip1,ip2> > output.txt\n", argv[0]);
-        fprintf(output, "       -d: Comma-separated list of domains to look up.\n");
-        fprintf(output, "       -i: Comma-separated list of IP addresses to look up.\n");
-        reset_console_color();
-        // Skip WSACleanup and curl_global_cleanup, as they aren't strictly necessary if we exit here.
-        // It's technically safer to clean up, but for a simple usage error exit, we can skip it.
-        return 1; 
+// --- Windows-specific Domain Resolution ---
+char *resolve_domain_to_ip(const char *domain) {
+    struct addrinfo hints, *res = NULL;
+    static char ip[INET6_ADDRSTRLEN] = {0};
+    
+    // Windows Sockets (WSA) initialization is not required here for getaddrinfo
+    
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;      // IPv4 only for simplicity and get_asn_from_ip
+    hints.ai_socktype = SOCK_STREAM;
+    
+    if (getaddrinfo(domain, NULL, &hints, &res) != 0) {
+        // fprintf(stderr, "getaddrinfo failed: %d\n", WSAGetLastError());
+        return NULL;
     }
     
-    // Parse arguments
+    struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
+    // Use the MinGW-w64 compatible inet_ntop
+    if (inet_ntop(AF_INET, &(ipv4->sin_addr), ip, sizeof(ip)) == NULL) {
+        freeaddrinfo(res);
+        return NULL;
+    }
+    
+    freeaddrinfo(res);
+    return ip;
+}
+
+// --- Main function with Manual Argument Parsing (replacing getopt) ---
+int main(int argc, char *argv[]) {
+    char ips[1024] = {0};
+    char domains[1024] = {0};
+    char filename[256] = {0};
+    FILE *output = stdout;
+    
+    // Manual argument parsing loop
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-d") == 0 && (i + 1) < argc) {
-            domains = strdup(argv[++i]);
+        if (strcmp(argv[i], "--version") == 0) {
+            print_installed_version();
+            return 0;
+        } else if (strcmp(argv[i], "--ghversion") == 0) {
+            print_latest_github_version();
+            return 0;
+        } else if (strcmp(argv[i], "--help") == 0) {
+            print_help(argv[0], stdout);
+            return 0;
         } else if (strcmp(argv[i], "-i") == 0 && (i + 1) < argc) {
-            ips = strdup(argv[++i]);
+            strncpy(ips, argv[i+1], sizeof(ips) - 1);
+            i++; // Skip the next argument (the value)
+        } else if (strcmp(argv[i], "-d") == 0 && (i + 1) < argc) {
+            strncpy(domains, argv[i+1], sizeof(domains) - 1);
+            i++; // Skip the next argument (the value)
+        } else if (strcmp(argv[i], "-f") == 0 && (i + 1) < argc) {
+            strncpy(filename, argv[i+1], sizeof(filename) - 1);
+            i++; // Skip the next argument (the value)
         }
     }
-    // ----------------------------------------------------------------------
 
+    // Since we removed getopt, we need to initialize Winsock manually for safety.
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        fprintf(stderr, RED "WSAStartup failed.\n" RESET);
+        return 1;
+    }
+
+    if (strlen(filename) > 0) {
+        output = fopen(filename, "w");
+        if (!output) {
+            fprintf(stderr, RED "Failed to open file for writing.\n" RESET);
+            WSACleanup();
+            return 1;
+        }
+    }
+
+    if (strlen(ips) == 0 && strlen(domains) == 0) {
+        print_help(argv[0], output);
+        if (output != stdout) fclose(output);
+        WSACleanup();
+        return 1;
+    }
 
     char *token;
-    char *saveptr;
-
-    // IP Lookup
-    if (ips != NULL && strlen(ips) > 0) {
-        token = strtok_r(ips, ",", &saveptr);
+    char *ips_copy = NULL; // Use a copy because strtok modifies the string
+    
+    if (strlen(ips) > 0) {
+        ips_copy = strdup(ips);
+        token = strtok(ips_copy, ",");
         while (token != NULL) {
             char *asn = get_asn_from_ip(token);
             if (!asn) {
-                set_console_color(COLOR_RED);
-                fprintf(stderr, "Failed to resolve ASN from IP: %s\n", token);
-                reset_console_color();
+                fprintf(stderr, RED "Failed to resolve ASN from IP: %s\n" RESET, token);
             } else {
-                set_console_color(COLOR_GREEN);
-                fprintf(output, "\nResolved ASN for IP %s: %s\n", token, asn);
-                reset_console_color();
+                fprintf(output, GREEN "Resolved ASN for IP %s: %s\n", token, asn);
                 fetch_ip_ranges(asn, output);
                 fetch_bgpview_info(asn, output);
-                free(asn);
             }
-            token = strtok_r(NULL, ",", &saveptr);
+            token = strtok(NULL, ",");
         }
+        free(ips_copy);
     }
 
-    // Domain Lookup
-    if (domains != NULL && strlen(domains) > 0) {
-        token = strtok_r(domains, ",", &saveptr);
+    char *domains_copy = NULL;
+    if (strlen(domains) > 0) {
+        domains_copy = strdup(domains);
+        token = strtok(domains_copy, ",");
         while (token != NULL) {
             char *resolved_ip = resolve_domain_to_ip(token);
             if (!resolved_ip) {
-                set_console_color(COLOR_RED);
-                fprintf(stderr, "Failed to resolve domain to IP: %s\n", token);
-                reset_console_color();
+                fprintf(stderr, RED "Failed to resolve domain to IP: %s\n" RESET, token);
             } else {
                 char *asn = get_asn_from_ip(resolved_ip);
                 if (!asn) {
-                    set_console_color(COLOR_RED);
-                    fprintf(stderr, "Failed to resolve ASN from domain %s (IP %s)\n", token, resolved_ip);
-                    reset_console_color();
+                    fprintf(stderr, RED "Failed to resolve ASN from domain %s (IP %s)\n" RESET, token, resolved_ip);
                 } else {
-                    set_console_color(COLOR_GREEN);
-                    fprintf(output, "\nResolved ASN for domain %s (IP %s): %s\n", token, resolved_ip, asn);
-                    reset_console_color();
+                    fprintf(output, GREEN "Resolved ASN for domain %s (IP %s): %s\n", token, resolved_ip, asn);
                     fetch_ip_ranges(asn, output);
                     fetch_bgpview_info(asn, output);
-                    free(asn);
                 }
-                free(resolved_ip); // Free the resolved IP
             }
-            token = strtok_r(NULL, ",", &saveptr);
+            token = strtok(NULL, ",");
         }
+        free(domains_copy);
     }
 
-    if (ips) free(ips);
-    if (domains) free(domains);
-    
-    // Cleanup
-    curl_global_cleanup();
-    // --- CRITICAL FIX 1: Clean up Winsock ---
-    WSACleanup();
-    // ----------------------------------------
-    
+    if (output != stdout) fclose(output);
+    WSACleanup(); // Clean up Winsock
     return 0;
 }
