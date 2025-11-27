@@ -80,17 +80,27 @@ jobs:
       # --- 4. Compile the Windows Executable (FINAL SCHANNEL FIX) ---
       - name: Compile aslookup.exe for Windows (Final Schannel Fix)
         run: |
-          # Define the most common MinGW-w64 system include path
-          SYS_INCLUDE_PATH=/usr/x86_64-w64-mingw32/include 
-          
-          # Use x86_64-w64-mingw32-gcc to cross-compile
+          # 1. VERIFY PATHS
+          # Define the target include path variable
+          CURL_INCLUDE_PATH="${GITHUB_WORKSPACE}/static/include"
+          SYS_INCLUDE_PATH="/usr/x86_64-w64-mingw32/include" 
+
+          # Debug: Echo paths to confirm they exist and are correct
+          echo "Checking Curl include path: ${CURL_INCLUDE_PATH}"
+          find "${CURL_INCLUDE_PATH}" -name "curl.h"
+          if [ $? -ne 0 ]; then
+              echo "❌ ERROR: curl.h not found in expected directory: ${CURL_INCLUDE_PATH}"
+              exit 1
+          fi
+
+          # 2. COMPILATION COMMAND
           x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \              # Defines the Windows API version for DNS constants
               -DCURL_STATICLIB \                   # Required for static libcurl
               -D_CRT_DECLARE_NONSTDC_NAMES \
-              -I. \                                # Include current directory (for cjson.h, if located here)
-              -I./cjson \                          # Include cjson subdirectory (if cjson.h is here)
-              -I$GITHUB_WORKSPACE/static/include \ # CRITICAL: Path for curl/curl.h headers
+              -I. \                                # Include current directory (for cjson/cJSON.h, cjson.h)
+              -I./cjson \                          # Include cjson subdirectory
+              -I${CURL_INCLUDE_PATH} \             # CRITICAL: Path for curl/curl.h headers
               -I${SYS_INCLUDE_PATH} \              # CRITICAL: Path for Windows system headers (Dnsapi.h)
               ./lib/libcurl.a \                    # Static library file
               -lws2_32 -lmswsock -luser32 \
