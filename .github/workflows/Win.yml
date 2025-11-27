@@ -80,13 +80,17 @@ jobs:
       # --- 4. Compile the Windows Executable (FINAL SCHANNEL FIX) ---
       - name: Compile aslookup.exe for Windows (Final Schannel Fix)
         run: |
-          # Added compatibility definitions (WINVER, _WIN32_IE) and explicit -lwsock32 link.
+          # Define the system include path for the cross-compiler
+          SYS_INCLUDE_PATH=/usr/x86_64-w64-mingw32/include 
+          
+          # Use the target-specific GCC command
           x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
               -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
               -D_CRT_DECLARE_NONSTDC_NAMES \
               -I. \
               -I./mingw-include \
+              -I${SYS_INCLUDE_PATH} \
               ./lib/libcurl.a \
               -lws2_32 -lmswsock -luser32 \
               -lbcrypt -lcrypt32 -ladvapi32 \
