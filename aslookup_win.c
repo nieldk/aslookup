@@ -1,5 +1,4 @@
 // aslookup_win.c
-#define _WIN32_WINNT 0x0600
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
