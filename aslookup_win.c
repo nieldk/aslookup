@@ -9,7 +9,6 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windns.h>
-#include <Dnsapi.h> // Sometimes required for the constants
 
 // --- End Windows-specific Headers ---
 
