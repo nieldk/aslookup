@@ -80,21 +80,23 @@ jobs:
       # --- 4. Compile the Windows Executable (FINAL SCHANNEL FIX) ---
       - name: Compile aslookup.exe for Windows (Final Schannel Fix)
         run: |
-          # The TARGET_HOST is x86_64-w64-mingw32
           SYS_INCLUDE_PATH=/usr/x86_64-w64-mingw32/include 
           
           x86_64-w64-mingw32-gcc -o aslookup.exe aslookup_win.c cjson/cJSON.c \
-              -D_WIN32_WINNT=0x0600 \ # CRITICAL: Defines the API version
+              -D_WIN32_WINNT=0x0600 \
               -DCURL_STATICLIB \
               -D_CRT_DECLARE_NONSTDC_NAMES \
               -I. \
-              -I./mingw-include \
-              -I${SYS_INCLUDE_PATH} \  # CRITICAL: Path to find Dnsapi.h
+              -I./mingw-include \ # This is where cjson.h is
+              -I${SYS_INCLUDE_PATH} \
+              # 🆕 CRITICAL FIX: Add the root 'static/include' directory 
+              # where the 'curl' folder lives.
+              -I$GITHUB_WORKSPACE/static/include \ 
               ./lib/libcurl.a \
               -lws2_32 -lmswsock -luser32 \
               -lbcrypt -lcrypt32 -ladvapi32 \
               -liphlpapi \
-              -ldnsapi \ # CRITICAL: Links the DnsQuery_A function
+              -ldnsapi \
               -lwldap32 \
               -lpthread \
               -static
