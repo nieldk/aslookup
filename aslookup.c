@@ -57,7 +57,7 @@ void print_latest_github_version() {
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "aslookup-c-client/1.0");
     CURLcode res = curl_easy_perform(curl);
     if (res == CURLE_OK) {
-    cJSON *root = cJSON_Parse(chunk.memory);
+        cJSON *root = cJSON_Parse(chunk.memory);
         if (root && cJSON_IsArray(root) && cJSON_GetArraySize(root) > 0) {
             // Get the first item in the array (the latest release)
             cJSON *latest_release = cJSON_GetArrayItem(root, 0); 
@@ -74,8 +74,7 @@ void print_latest_github_version() {
         } else {
             printf("Failed to parse JSON from Codeberg or received an empty list.\n");
         }
-        }
-    } else {
+    } else { // This 'else' is now correctly paired with 'if (res == CURLE_OK)'
         printf("Failed to fetch release info from Codeberg: %s\n", curl_easy_strerror(res));
     }
     curl_easy_cleanup(curl);
