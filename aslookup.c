@@ -23,6 +23,13 @@
 #define VERSION "unknown"
 #endif
 
+void print_author_info() {
+    printf(YELLOW "\nThank you for installing aslookup!\n" RESET);
+    printf(CYAN "Author: Niel Nielsen\n" RESET);
+    printf(CYAN "Repository: https://codeberg.org/nieldk/aslookup\n" RESET);
+    printf(YELLOW "-------------------------------------------\n\n" RESET);
+}
+
 void print_installed_version() {
     printf("aslookup version: %s\n", VERSION);
 }
@@ -215,6 +222,7 @@ char *resolve_domain_to_ip(const char *domain) {
 }
 
 int main(int argc, char *argv[]) {
+    print_author_info();
     char ips[1024] = {0};
     char domains[1024] = {0};
     char filename[256] = {0};
