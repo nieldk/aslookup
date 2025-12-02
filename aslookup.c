@@ -51,26 +51,32 @@ void print_latest_github_version() {
         return;
     }
     struct MemoryStruct chunk = {malloc(1), 0};
-    curl_easy_setopt(curl, CURLOPT_URL, "https://api.github.com/repos/nieldk/aslookup/releases/latest");
+    curl_easy_setopt(curl, CURLOPT_URL, "https://codeberg.org/api/v1/repos/nieldk/aslookup/releases");
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "aslookup-c-client/1.0");
     CURLcode res = curl_easy_perform(curl);
     if (res == CURLE_OK) {
-        cJSON *root = cJSON_Parse(chunk.memory);
-        if (root) {
-            cJSON *tag = cJSON_GetObjectItem(root, "tag_name");
+    cJSON *root = cJSON_Parse(chunk.memory);
+        if (root && cJSON_IsArray(root) && cJSON_GetArraySize(root) > 0) {
+            // Get the first item in the array (the latest release)
+            cJSON *latest_release = cJSON_GetArrayItem(root, 0); 
+            
+            // Now, get the "tag_name" from that object
+            cJSON *tag = cJSON_GetObjectItem(latest_release, "tag_name");
+
             if (tag && tag->valuestring) {
-                printf("Latest GitHub release: %s\n", tag->valuestring);
+                printf("Latest Codeberg release: %s\n", tag->valuestring);
             } else {
-                printf("Could not find version info in GitHub release.\n");
+                printf("Could not find version info in Codeberg release.\n");
             }
             cJSON_Delete(root);
         } else {
-            printf("Failed to parse JSON from GitHub.\n");
+            printf("Failed to parse JSON from Codeberg or received an empty list.\n");
+        }
         }
     } else {
-        printf("Failed to fetch release info from GitHub: %s\n", curl_easy_strerror(res));
+        printf("Failed to fetch release info from Codeberg: %s\n", curl_easy_strerror(res));
     }
     curl_easy_cleanup(curl);
     free(chunk.memory);
